@@ -48,48 +48,6 @@ function addFilesWithValidation(prev, fileList, label = "file") {
     return { nextFiles: sliced, messages };
 }
 
-function getApiErrorMessage(err) {
-    // axios error shape
-    const status = err?.response?.status;
-    const data = err?.response?.data;
-
-    // jika backend mengirim pesan
-    if (data) {
-        if (typeof data === "string") return data;
-
-        const msg = data?.message || data?.error;
-        if (msg) {
-            // kalau backend kirim errors array, gabungkan
-            if (Array.isArray(data.errors) && data.errors.length) {
-                const details = data.errors
-                    .map((x) => x?.message || x?.msg || x?.error || String(x))
-                    .filter(Boolean)
-                    .join("\n");
-                return details ? `${msg}\n${details}` : msg;
-            }
-            return msg;
-        }
-    }
-
-    // fallback dari error message
-    const raw = err?.message || "Gagal upload gambar.";
-
-    // jangan tampilkan default axios yang jelek
-    if (/Request failed with status code/i.test(raw)) {
-        if (status === 413) return "Ukuran upload terlalu besar. Coba kurangi jumlah/ukuran gambar.";
-        if (status === 500) return "Server sedang bermasalah (500). Coba lagi beberapa saat.";
-        if (status) return `Gagal memproses request (HTTP ${status}).`;
-        return "Gagal memproses request.";
-    }
-
-    if (/Network Error/i.test(raw)) {
-        return "Tidak bisa terhubung ke server. Periksa koneksi atau API base URL.";
-    }
-
-    return raw;
-}
-
-
 function removeAt(arr, idx) {
     return arr.filter((_, i) => i !== idx);
 }
@@ -175,11 +133,10 @@ export default function DesignImagesPage() {
             await uploadDesignImages(draft.designId, { fotoBangunan, fotoDenah });
             navigate("/dashboard/architect/upload/review");
         } catch (e) {
-            setPageError(getApiErrorMessage(e));
+            setPageError(e?.message || "Gagal upload gambar.");
         } finally {
             setSaving(false);
         }
-
     }
 
     return (

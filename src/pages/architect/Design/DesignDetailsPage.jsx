@@ -1,25 +1,22 @@
-// src/pages/.../DesignDetailsPage.jsx
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { getDesignCategories, createDesignDraft, updateDesignDraft } from "../../../lib/apiDesigns";
+import { loadDraft, saveDraft } from "../../../lib/designDraft";
 
 export default function DesignDetailsPage() {
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
-
-    // ✅ kalau mode edit, kirim designId di URL: ?designId=xxxx
-    const designId = searchParams.get("designId");
+    const draft = loadDraft();
 
     const [categories, setCategories] = useState([]);
     const [loadingCat, setLoadingCat] = useState(true);
     const [saving, setSaving] = useState(false);
 
     const [form, setForm] = useState({
-        title: "",
-        description: "",
-        kategori: "",
-        luas_bangunan: "",
-        luas_tanah: "",
+        title: draft.title || "",
+        description: draft.description || "",
+        kategori: draft.kategori || "",
+        luas_bangunan: draft.luas_bangunan || "",
+        luas_tanah: draft.luas_tanah || "",
     });
 
     // ✅ error handler
@@ -28,7 +25,7 @@ export default function DesignDetailsPage() {
 
     useEffect(() => {
         getDesignCategories()
-            .then((cats) => setCategories(Array.isArray(cats) ? cats : []))
+            .then(setCategories)
             .catch(() => setCategories([]))
             .finally(() => setLoadingCat(false));
     }, []);
@@ -49,6 +46,11 @@ export default function DesignDetailsPage() {
         const nextErrors = {};
         if (!form.title.trim()) nextErrors.title = "Judul proyek wajib diisi.";
         if (!form.kategori) nextErrors.kategori = "Kategori wajib dipilih.";
+
+        // opsional: kalau mau angka wajib valid
+        // if (form.luas_bangunan && isNaN(Number(form.luas_bangunan))) nextErrors.luas_bangunan = "Luas bangunan harus berupa angka.";
+        // if (form.luas_tanah && isNaN(Number(form.luas_tanah))) nextErrors.luas_tanah = "Luas tanah harus berupa angka.";
+
         return nextErrors;
     }
 
@@ -64,19 +66,14 @@ export default function DesignDetailsPage() {
 
         setSaving(true);
         try {
-            let id = designId;
-
-            if (!id) {
+            if (!draft.designId) {
                 const created = await createDesignDraft(form);
-                id = created?.id;
+                saveDraft({ ...form, designId: created.id });
             } else {
-                await updateDesignDraft(id, form);
+                await updateDesignDraft(draft.designId, form);
+                saveDraft({ ...form, designId: draft.designId });
             }
-
-            if (!id) throw new Error("DesignId tidak ditemukan setelah simpan.");
-
-            // ✅ lanjut step upload gambar (bawa designId via query)
-            navigate(`/dashboard/architect/upload/images?designId=${encodeURIComponent(id)}`);
+            navigate("/dashboard/architect/upload/images");
         } catch (e) {
             setFormError(e?.message || "Gagal menyimpan draft.");
         } finally {
@@ -120,22 +117,34 @@ export default function DesignDetailsPage() {
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-1">
                         <input
-                            className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-300"
+                            className={
+                                "w-full rounded-xl border px-4 py-3 outline-none " +
+                                (errors.luas_bangunan ? "border-red-300 focus:border-red-400" : "border-slate-200 focus:border-slate-300")
+                            }
                             value={form.luas_bangunan}
                             onChange={(e) => setField("luas_bangunan", e.target.value)}
                             placeholder="Luas bangunan (m²)"
                             inputMode="numeric"
                         />
+                        {errors.luas_bangunan ? (
+                            <div className="text-xs font-semibold text-red-600">{errors.luas_bangunan}</div>
+                        ) : null}
                     </div>
 
                     <div className="space-y-1">
                         <input
-                            className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-300"
+                            className={
+                                "w-full rounded-xl border px-4 py-3 outline-none " +
+                                (errors.luas_tanah ? "border-red-300 focus:border-red-400" : "border-slate-200 focus:border-slate-300")
+                            }
                             value={form.luas_tanah}
                             onChange={(e) => setField("luas_tanah", e.target.value)}
                             placeholder="Luas tanah (m²)"
                             inputMode="numeric"
                         />
+                        {errors.luas_tanah ? (
+                            <div className="text-xs font-semibold text-red-600">{errors.luas_tanah}</div>
+                        ) : null}
                     </div>
                 </div>
 
