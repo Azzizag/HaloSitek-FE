@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { FiArrowLeft } from "react-icons/fi";
 import { getArsipediaDetail, mapArsipediaToCard } from "../../lib/apiArsipedia";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 function TagPill({ children }) {
     return (
@@ -99,12 +99,12 @@ export default function ArsipediaDetailPage() {
                 // Guard supaya tidak double hit (StrictMode)
                 if (canTrack && !trackedRef.current) {
                     trackedRef.current = true;
-                    await postWithToken(`${API_BASE_URL}/api/views/arsipedia/${encodeURIComponent(id)}`, tokenToUse);
+                    await postWithToken(`${API_BASE_URL}/views/arsipedia/${encodeURIComponent(id)}`, tokenToUse);
                 }
 
                 // Ambil summary views (public, tapi boleh juga pakai token)
                 const summary = await getJSON(
-                    `${API_BASE_URL}/api/views/arsipedia/${encodeURIComponent(id)}/summary`,
+                    `${API_BASE_URL}/views/arsipedia/${encodeURIComponent(id)}/summary`,
                     tokenToUse // optional
                 );
 

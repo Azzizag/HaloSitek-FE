@@ -5,7 +5,11 @@ import { FiMail, FiUser, FiUserCheck, FiUpload, FiEdit2, FiLock, FiX } from "rea
 import { apiClient } from "../../lib/apiClient";
 import { getAccessToken, clearAccessToken } from "../../lib/authClient";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// ✅ batas upload avatar
+const MAX_AVATAR_MB = 5;
+const MAX_AVATAR_BYTES = MAX_AVATAR_MB * 1024 * 1024;
 
 function isUnauthorized(e) {
     const msg = String(e?.message || "").toUpperCase();
@@ -18,6 +22,61 @@ function toAbsoluteUrl(u) {
     if (/^https?:\/\//i.test(u)) return u;
     const cleaned = u.startsWith("/") ? u : `/${u}`;
     return `${API_BASE_URL}${cleaned}`;
+}
+
+// ✅ ambil payload error dari berbagai bentuk (apiClient custom / axios / fetch)
+function getErrorPayload(err) {
+    return (
+        err?.data ||
+        err?.response?.data ||
+        err?.payload ||
+        err?.body ||
+        null
+    );
+}
+
+// ✅ extract error per-field dari payload backend (flexible)
+function extractFieldErrorsFromPayload(payload) {
+    if (!payload) return null;
+
+    // format: { errors: { field: "msg" } }
+    if (payload?.errors && typeof payload.errors === "object" && !Array.isArray(payload.errors)) {
+        return payload.errors;
+    }
+
+    // format: { fieldErrors: { field: "msg" } }
+    if (payload?.fieldErrors && typeof payload.fieldErrors === "object" && !Array.isArray(payload.fieldErrors)) {
+        return payload.fieldErrors;
+    }
+
+    // format: { error: { fieldErrors: { ... } } }
+    if (payload?.error?.fieldErrors && typeof payload.error.fieldErrors === "object") {
+        return payload.error.fieldErrors;
+    }
+
+    // format: { errors: [{ field, message }] }
+    if (Array.isArray(payload?.errors)) {
+        const out = {};
+        for (const it of payload.errors) {
+            const k = it?.field || it?.path || it?.name;
+            const m = it?.message || it?.msg;
+            if (k && m) out[k] = m;
+        }
+        return Object.keys(out).length ? out : null;
+    }
+
+    // format: { message, details: [{ ... }] }
+    if (Array.isArray(payload?.details)) {
+        const out = {};
+        for (const it of payload.details) {
+            const k = it?.field || it?.path || it?.name;
+            const m = it?.message || it?.msg;
+            if (k && m) out[k] = m;
+        }
+        return Object.keys(out).length ? out : null;
+    }
+
+    return null;
 }
 
 export default function UserProfilePage() {
@@ -38,7 +97,13 @@ export default function UserProfilePage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [changing, setChanging] = useState(false);
+
+    // ✅ global error banner (umum)
     const [error, setError] = useState("");
+
+    // ✅ per-field errors
+    const [profileErrors, setProfileErrors] = useState({}); // { fullName, username, profilePicture }
+    const [pwdErrors, setPwdErrors] = useState({}); // { oldPassword, newPassword, confirmNewPassword }
 
     const [isEdit, setIsEdit] = useState(false);
     const [showChangePassword, setShowChangePassword] = useState(false);
@@ -68,9 +133,11 @@ export default function UserProfilePage() {
             try {
                 setLoading(true);
                 setError("");
+                setProfileErrors({});
+                setPwdErrors({});
 
                 // GET profile
-                const res = await apiClient("/api/users/auth/profile");
+                const res = await apiClient("/users/auth/profile");
                 const payload = res?.data ?? res;
                 const u = payload?.data ?? payload;
 
@@ -112,13 +179,30 @@ export default function UserProfilePage() {
 
         return () => {
             mounted = false;
-            // cleanup object URL
             if (previewUrlRef.current) {
                 URL.revokeObjectURL(previewUrlRef.current);
                 previewUrlRef.current = null;
             }
         };
     }, [navigate, fallback]);
+
+    function clearProfileFieldError(field) {
+        setProfileErrors((prev) => {
+            if (!prev?.[field]) return prev;
+            const next = { ...prev };
+            delete next[field];
+            return next;
+        });
+    }
+
+    function clearPwdFieldError(field) {
+        setPwdErrors((prev) => {
+            if (!prev?.[field]) return prev;
+            const next = { ...prev };
+            delete next[field];
+            return next;
+        });
+    }
 
     function onPickFile() {
         if (!isEdit) return;
@@ -129,7 +213,30 @@ export default function UserProfilePage() {
         const f = e.target.files?.[0];
         if (!f) return;
 
+        setError("");
+
+        // ✅ validasi tipe file
+        if (!String(f.type || "").startsWith("image/")) {
+            setProfileErrors((p) => ({ ...p, profilePicture: "File harus berupa gambar (JPG/PNG/WebP)." }));
+            setError("Gagal memilih file: bukan gambar.");
+            e.target.value = "";
+            return;
+        }
+
+        // ✅ validasi ukuran
+        if (f.size > MAX_AVATAR_BYTES) {
+            const sizeMb = (f.size / (1024 * 1024)).toFixed(2);
+            setProfileErrors((p) => ({
+                ...p,
+                profilePicture: `Ukuran foto ${sizeMb}MB melebihi batas ${MAX_AVATAR_MB}MB.`,
+            }));
+            setError("Ukuran foto terlalu besar.");
+            e.target.value = "";
+            return;
+        }
+
         setSelectedFile(f);
+        clearProfileFieldError("profilePicture");
 
         // ✅ preview
         if (previewUrlRef.current) {
@@ -139,16 +246,22 @@ export default function UserProfilePage() {
         const preview = URL.createObjectURL(f);
         previewUrlRef.current = preview;
         setAvatarUrl(preview);
+
+        // allow reselect same file
+        e.target.value = "";
     }
 
     function handleEdit() {
         setError("");
+        setProfileErrors({});
+        setPwdErrors({});
         setIsEdit(true);
         setShowChangePassword(false);
     }
 
     function handleCancelEdit() {
         setError("");
+        setProfileErrors({});
 
         setFullName(snapshot.fullName);
         setUsername(snapshot.username);
@@ -169,11 +282,22 @@ export default function UserProfilePage() {
         try {
             setSaving(true);
             setError("");
+            setProfileErrors({});
 
             const token = getAccessToken();
             if (!token) {
                 clearAccessToken();
                 navigate("/login?role=user", { replace: true });
+                return;
+            }
+
+            // ✅ validasi FE (wajib isi)
+            const localErrors = {};
+            if (!String(username || "").trim()) localErrors.username = "Username wajib diisi.";
+            if (!String(fullName || "").trim()) localErrors.fullName = "Nama wajib diisi.";
+            if (Object.keys(localErrors).length) {
+                setProfileErrors(localErrors);
+                setError("Mohon lengkapi field yang wajib diisi.");
                 return;
             }
 
@@ -186,11 +310,10 @@ export default function UserProfilePage() {
                 fd.append("profilePicture", selectedFile);
             }
 
-            const res = await fetch(`${API_BASE_URL}/api/users/auth/profile`, {
+            const res = await fetch(`${API_BASE_URL}/users/auth/profile`, {
                 method: "PUT",
                 headers: {
                     Authorization: `Bearer ${token}`,
-                    // jangan set Content-Type untuk FormData
                 },
                 body: fd,
             });
@@ -209,6 +332,19 @@ export default function UserProfilePage() {
             }
 
             if (!res.ok || json?.success === false) {
+                // ✅ ambil error per-field dari backend
+                const fieldErrors = extractFieldErrorsFromPayload(json);
+                if (fieldErrors) {
+                    const mapped = {};
+                    if (fieldErrors.username) mapped.username = fieldErrors.username;
+                    if (fieldErrors.fullName || fieldErrors.name) mapped.fullName = fieldErrors.fullName || fieldErrors.name;
+                    if (fieldErrors.profilePicture || fieldErrors.avatar || fieldErrors.profilePictureUrl) {
+                        mapped.profilePicture =
+                            fieldErrors.profilePicture || fieldErrors.avatar || fieldErrors.profilePictureUrl;
+                    }
+                    setProfileErrors(mapped);
+                }
+
                 throw new Error(json?.message || "Gagal menyimpan profil");
             }
 
@@ -255,30 +391,36 @@ export default function UserProfilePage() {
 
     function handleOpenChangePassword() {
         setError("");
+        setPwdErrors({});
         setShowChangePassword((v) => !v);
     }
 
     async function handleChangePassword(e) {
         e.preventDefault();
         setError("");
+        setPwdErrors({});
 
-        if (!oldPassword || !newPassword || !confirmNewPassword) {
-            setError("Semua field kata sandi wajib diisi.");
-            return;
+        // ✅ validasi FE
+        const local = {};
+        if (!oldPassword) local.oldPassword = "Kata sandi saat ini wajib diisi.";
+        if (!newPassword) local.newPassword = "Kata sandi baru wajib diisi.";
+        if (!confirmNewPassword) local.confirmNewPassword = "Konfirmasi kata sandi wajib diisi.";
+
+        if (newPassword && newPassword.length < 6) local.newPassword = "Kata sandi baru minimal 6 karakter.";
+        if (newPassword && confirmNewPassword && newPassword !== confirmNewPassword) {
+            local.confirmNewPassword = "Konfirmasi kata sandi baru tidak sama.";
         }
-        if (newPassword.length < 6) {
-            setError("Kata sandi baru minimal 6 karakter.");
-            return;
-        }
-        if (newPassword !== confirmNewPassword) {
-            setError("Konfirmasi kata sandi baru tidak sama.");
+
+        if (Object.keys(local).length) {
+            setPwdErrors(local);
+            setError("Mohon periksa input kata sandi.");
             return;
         }
 
         try {
             setChanging(true);
 
-            await apiClient("/api/users/auth/change-password", {
+            await apiClient("/users/auth/change-password", {
                 method: "POST",
                 body: JSON.stringify({ oldPassword, newPassword }),
             });
@@ -294,7 +436,19 @@ export default function UserProfilePage() {
                 navigate("/login?role=user", { replace: true });
                 return;
             }
-            setError(e2?.message || "Gagal mengubah kata sandi");
+
+            // ✅ ambil error per-field dari backend
+            const payload = getErrorPayload(e2);
+            const fieldErrors = extractFieldErrorsFromPayload(payload);
+            if (fieldErrors) {
+                setPwdErrors({
+                    oldPassword: fieldErrors.oldPassword || fieldErrors.currentPassword,
+                    newPassword: fieldErrors.newPassword,
+                    confirmNewPassword: fieldErrors.confirmNewPassword,
+                });
+            }
+
+            setError(e2?.message || payload?.message || "Gagal mengubah kata sandi");
         } finally {
             setChanging(false);
         }
@@ -404,6 +558,16 @@ export default function UserProfilePage() {
                                 onChange={onFileChange}
                             />
 
+                            {profileErrors?.profilePicture ? (
+                                <div className="mt-3 text-xs font-semibold text-red-600">
+                                    {profileErrors.profilePicture}
+                                </div>
+                            ) : (
+                                <p className="mt-3 text-xs text-slate-500">
+                                    Maks ukuran foto: {MAX_AVATAR_MB}MB.
+                                </p>
+                            )}
+
                             {!isEdit && (
                                 <p className="mt-3 text-xs text-slate-500">
                                     Untuk mengubah data, tekan <b>Edit Profil</b>.
@@ -423,12 +587,26 @@ export default function UserProfilePage() {
                                     icon={<FiUser className="text-slate-500" />}
                                     label="Username"
                                     value={
-                                        <input
-                                            className="w-full bg-transparent text-right text-sm text-slate-700 outline-none disabled:text-slate-500"
-                                            value={username}
-                                            onChange={(e) => setUsername(e.target.value)}
-                                            disabled={!isEdit || loading}
-                                        />
+                                        <div className="w-full">
+                                            <input
+                                                className={[
+                                                    "w-full bg-transparent text-right text-sm outline-none disabled:text-slate-500",
+                                                    profileErrors?.username ? "text-red-700" : "text-slate-700",
+                                                ].join(" ")}
+                                                value={username}
+                                                onChange={(e) => {
+                                                    setUsername(e.target.value);
+                                                    clearProfileFieldError("username");
+                                                    setError("");
+                                                }}
+                                                disabled={!isEdit || loading}
+                                            />
+                                            {profileErrors?.username ? (
+                                                <div className="mt-1 text-right text-xs font-semibold text-red-600">
+                                                    {profileErrors.username}
+                                                </div>
+                                            ) : null}
+                                        </div>
                                     }
                                 />
 
@@ -436,12 +614,26 @@ export default function UserProfilePage() {
                                     icon={<FiUserCheck className="text-slate-500" />}
                                     label="Nama"
                                     value={
-                                        <input
-                                            className="w-full bg-transparent text-right text-sm text-slate-900 outline-none disabled:text-slate-500"
-                                            value={fullName}
-                                            onChange={(e) => setFullName(e.target.value)}
-                                            disabled={!isEdit || loading}
-                                        />
+                                        <div className="w-full">
+                                            <input
+                                                className={[
+                                                    "w-full bg-transparent text-right text-sm outline-none disabled:text-slate-500",
+                                                    profileErrors?.fullName ? "text-red-700" : "text-slate-900",
+                                                ].join(" ")}
+                                                value={fullName}
+                                                onChange={(e) => {
+                                                    setFullName(e.target.value);
+                                                    clearProfileFieldError("fullName");
+                                                    setError("");
+                                                }}
+                                                disabled={!isEdit || loading}
+                                            />
+                                            {profileErrors?.fullName ? (
+                                                <div className="mt-1 text-right text-xs font-semibold text-red-600">
+                                                    {profileErrors.fullName}
+                                                </div>
+                                            ) : null}
+                                        </div>
                                     }
                                 />
 
@@ -473,7 +665,11 @@ export default function UserProfilePage() {
                                     <button
                                         type="button"
                                         className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                                        onClick={() => setShowChangePassword(false)}
+                                        onClick={() => {
+                                            setShowChangePassword(false);
+                                            setPwdErrors({});
+                                            setError("");
+                                        }}
                                         aria-label="Tutup"
                                     >
                                         <FiX />
@@ -484,44 +680,84 @@ export default function UserProfilePage() {
                                     <div>
                                         <label className="text-sm font-semibold text-slate-700">Kata Sandi Saat Ini</label>
                                         <input
-                                            className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-slate-300"
+                                            className={[
+                                                "mt-2 h-11 w-full rounded-xl border px-4 text-sm outline-none",
+                                                pwdErrors?.oldPassword ? "border-red-300 focus:border-red-400" : "border-slate-200 focus:border-slate-300",
+                                            ].join(" ")}
                                             type="password"
                                             value={oldPassword}
-                                            onChange={(e) => setOldPassword(e.target.value)}
+                                            onChange={(e) => {
+                                                setOldPassword(e.target.value);
+                                                clearPwdFieldError("oldPassword");
+                                                setError("");
+                                            }}
                                             disabled={changing || loading}
                                             placeholder="••••••••"
                                         />
+                                        {pwdErrors?.oldPassword ? (
+                                            <div className="mt-1 text-xs font-semibold text-red-600">
+                                                {pwdErrors.oldPassword}
+                                            </div>
+                                        ) : null}
                                     </div>
 
                                     <div>
                                         <label className="text-sm font-semibold text-slate-700">Kata Sandi Baru</label>
                                         <input
-                                            className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-slate-300"
+                                            className={[
+                                                "mt-2 h-11 w-full rounded-xl border px-4 text-sm outline-none",
+                                                pwdErrors?.newPassword ? "border-red-300 focus:border-red-400" : "border-slate-200 focus:border-slate-300",
+                                            ].join(" ")}
                                             type="password"
                                             value={newPassword}
-                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            onChange={(e) => {
+                                                setNewPassword(e.target.value);
+                                                clearPwdFieldError("newPassword");
+                                                setError("");
+                                            }}
                                             disabled={changing || loading}
                                             placeholder="Minimal 6 karakter"
                                         />
+                                        {pwdErrors?.newPassword ? (
+                                            <div className="mt-1 text-xs font-semibold text-red-600">
+                                                {pwdErrors.newPassword}
+                                            </div>
+                                        ) : null}
                                     </div>
 
                                     <div>
                                         <label className="text-sm font-semibold text-slate-700">Konfirmasi Kata Sandi Baru</label>
                                         <input
-                                            className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-slate-300"
+                                            className={[
+                                                "mt-2 h-11 w-full rounded-xl border px-4 text-sm outline-none",
+                                                pwdErrors?.confirmNewPassword ? "border-red-300 focus:border-red-400" : "border-slate-200 focus:border-slate-300",
+                                            ].join(" ")}
                                             type="password"
                                             value={confirmNewPassword}
-                                            onChange={(e) => setConfirmNewPassword(e.target.value)}
+                                            onChange={(e) => {
+                                                setConfirmNewPassword(e.target.value);
+                                                clearPwdFieldError("confirmNewPassword");
+                                                setError("");
+                                            }}
                                             disabled={changing || loading}
                                             placeholder="Ulangi kata sandi baru"
                                         />
+                                        {pwdErrors?.confirmNewPassword ? (
+                                            <div className="mt-1 text-xs font-semibold text-red-600">
+                                                {pwdErrors.confirmNewPassword}
+                                            </div>
+                                        ) : null}
                                     </div>
 
                                     <div className="flex justify-end gap-3 pt-2">
                                         <button
                                             type="button"
                                             className="h-11 rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                                            onClick={() => setShowChangePassword(false)}
+                                            onClick={() => {
+                                                setShowChangePassword(false);
+                                                setPwdErrors({});
+                                                setError("");
+                                            }}
                                             disabled={changing}
                                         >
                                             Batal

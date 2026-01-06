@@ -1,50 +1,54 @@
-// src/pages/admin/ArsipediaPage.jsx
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { FiPlusCircle, FiEdit2, FiTrash2, FiX, FiCheckCircle, FiAlertTriangle } from "react-icons/fi";
+// src/pages/admin/ArsipediaEditorPage.jsx
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { FiArrowLeft, FiX, FiCheckCircle, FiTrash2, FiUpload, FiSave, FiSend } from "react-icons/fi";
 import { apiAdmin } from "../../lib/apiAdmin";
-import { clearAdminToken } from "../../lib/adminAuth";
+import { clearAdminToken, getAdminToken } from "../../lib/adminAuth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
-const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const ENDPOINTS = {
-    list: "/api/arsipedia",
-    remove: (id) => `/api/arsipedia/${id}`,
+    list: "/arsipedia",
+    detail: (id) => `/arsipedia/${id}`,
+    create: "/arsipedia", // multipart + image required
+    update: (id) => `/arsipedia/${id}`, // json
+    remove: (id) => `/arsipedia/${id}`,
 };
 
-function resolveImageUrl(imagePath) {
-    if (!imagePath) return "";
-    const s = String(imagePath).replaceAll("\\", "/").trim();
-    if (!s) return "";
+// decode JWT payload (tanpa verifikasi) untuk ambil adminId
+function parseJwt(token) {
+    try {
+        const part = token.split(".")[1];
+        const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+        const json = decodeURIComponent(
+            atob(base64)
+                .split("")
+                .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+                .join("")
+        );
+        return JSON.parse(json);
+    } catch {
+        return null;
+    }
+}
+
+function resolveUploadsUrl(imagePath) {
+    if (!imagePath) return null;
+
+    // kalau sudah absolute URL
+    const s = String(imagePath);
     if (s.startsWith("http://") || s.startsWith("https://")) return s;
 
-    const p = s.replace(/^\/+/, "");
-    if (p.startsWith("uploads/")) return `${API_ORIGIN}/${encodeURI(p)}`;
-    if (p.startsWith("arsipedia_images/")) return `${API_ORIGIN}/uploads/${encodeURI(p)}`;
-    return `${API_ORIGIN}/uploads/${encodeURI(p)}`;
-}
+    const base = API_BASE_URL.replace(/\/$/, "");
 
-function formatDate(iso) {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "-";
-    return new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short", year: "numeric" }).format(d);
-}
+    // ubah backslash windows jadi slash
+    let p = s.replace(/\\/g, "/");
 
-function statusBadge(status) {
-    const s = String(status || "").toLowerCase();
-    const isPublished = s === "published";
-    return (
-        <span
-            className={
-                "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold " +
-                (isPublished ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700")
-            }
-        >
-            {isPublished ? "Published" : "Draft"}
-        </span>
-    );
+    // pastikan prefix /uploads/
+    // imagePath biasanya: "arsipedia_images/xxx.jpg"
+    // jadi url final: /uploads/arsipedia_images/xxx.jpg
+    p = p.replace(/^\/+/, ""); // trim leading /
+    return `${base}/uploads/${encodeURI(p)}`;
 }
 
 function Toast({ text, onClose }) {
@@ -62,26 +66,17 @@ function Toast({ text, onClose }) {
     );
 }
 
-function InlineError({ children }) {
-    return (
-        <div className="flex items-center gap-2 rounded-lg bg-red-500 px-3 py-2 text-xs font-semibold text-white">
-            <FiAlertTriangle className="text-base" />
-            <span>{children}</span>
-        </div>
-    );
-}
-
 function ConfirmModal({ open, title, desc, confirmText = "Hapus", onClose, onConfirm, loading }) {
     if (!open) return null;
     return (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4">
             <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
                 <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
+                    <div>
                         <h3 className="text-lg font-extrabold text-slate-900">{title}</h3>
                         <p className="mt-1 text-sm text-slate-500">{desc}</p>
                     </div>
-                    <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" disabled={loading}>
+                    <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
                         <FiX />
                     </button>
                 </div>
@@ -107,206 +102,433 @@ function ConfirmModal({ open, title, desc, confirmText = "Hapus", onClose, onCon
     );
 }
 
-export default function ArsipediaPage() {
+export default function ArsipediaEditorPage() {
     const navigate = useNavigate();
-    const location = useLocation();
+    const { id } = useParams(); // "new" atau UUID
+    const isNew = id === "new" || !id;
 
-    const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState("");
+    const [loading, setLoading] = useState(!isNew);
     const [toast, setToast] = useState("");
+    const [err, setErr] = useState("");
 
-    const [items, setItems] = useState([]);
-    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [publishing, setPublishing] = useState(false);
+
+    const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleting, setDeleting] = useState(false);
 
-    const goLogin = useCallback(() => {
-        clearAdminToken();
-        navigate("/admin/login", { replace: true });
-    }, [navigate]);
+    // form
+    const [title, setTitle] = useState("");
+    const [content, setContent] = useState("");
+    const [status, setStatus] = useState("draft"); // draft|published
+    const [tags, setTags] = useState("");
+    const [imageFile, setImageFile] = useState(null);
 
-    // ✅ Ambil toast dari navigasi (create/delete)
-    useEffect(() => {
-        const t = location.state?.toast;
-        if (t) {
-            setToast(t);
-            navigate(location.pathname, { replace: true, state: {} });
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+    // preview existing imagePath
+    const [imagePath, setImagePath] = useState(null);
+    const [imageUrl, setImageUrl] = useState(null);
+
+    const adminId = useMemo(() => {
+        const token = getAdminToken();
+        const payload = token ? parseJwt(token) : null;
+        return payload?.id || payload?.adminId || null;
     }, []);
 
-    const fetchList = useCallback(async () => {
+    async function fetchDetail(articleId) {
         try {
             setLoading(true);
             setErr("");
-            const res = await apiAdmin(ENDPOINTS.list);
-            const rows = Array.isArray(res?.data) ? res.data : [];
-            setItems(rows);
+
+            const res = await apiAdmin(ENDPOINTS.detail(articleId));
+            const a = res?.data;
+
+            setTitle(a?.title ?? "");
+            setContent(a?.content ?? "");
+            setStatus(a?.status ?? "draft");
+            setTags(a?.tags ?? "");
+            setImagePath(a?.imagePath ?? null);
+
+            const url = resolveUploadsUrl(a?.imagePath);
+            setImageUrl(url);
         } catch (e) {
-            if (String(e.message).includes("UNAUTHORIZED")) return goLogin();
-            setErr(e.message || "Gagal mengambil data Arsipedia");
-            setItems([]);
+            if (String(e.message).includes("UNAUTHORIZED")) {
+                clearAdminToken();
+                navigate("/admin/login", { replace: true });
+                return;
+            }
+            setErr(e.message || "Gagal memuat detail artikel");
         } finally {
             setLoading(false);
         }
-    }, [goLogin]);
+    }
 
     useEffect(() => {
-        fetchList();
-    }, [fetchList]);
+        if (!isNew) fetchDetail(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, isNew]);
 
-    const confirmDelete = async () => {
-        if (!deleteTarget?.id) return;
+    function validateCreate() {
+        if (!adminId) return "adminId tidak ditemukan (token tidak berisi id).";
+        if (!title.trim()) return "Judul wajib diisi.";
+        if (!content.trim()) return "Konten wajib diisi.";
+        if (!imageFile) return "Gambar wajib diunggah (backend mewajibkan image saat create).";
+        return "";
+    }
+
+    function validateUpdate() {
+        if (!adminId) return "adminId tidak ditemukan (token tidak berisi id).";
+        if (!title.trim()) return "Judul wajib diisi.";
+        if (!content.trim()) return "Konten wajib diisi.";
+        return "";
+    }
+
+    // CREATE multipart (backend wajib image)
+    async function createMultipart(nextStatus) {
+        const msg = validateCreate();
+        if (msg) {
+            setErr(msg);
+            return null;
+        }
+
+        const token = getAdminToken();
+        const fd = new FormData();
+        fd.append("adminId", adminId);
+        fd.append("title", title.trim());
+        fd.append("content", content);
+        fd.append("status", nextStatus);
+        fd.append("tags", tags);
+        fd.append("image", imageFile); // <-- field upload
+
+        const res = await fetch(`${API_BASE_URL}${ENDPOINTS.create}`, {
+            method: "POST",
+            headers: {
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: fd,
+            credentials: "include",
+        });
+
+        if (res.status === 401) {
+            clearAdminToken();
+            navigate("/admin/login", { replace: true });
+            return null;
+        }
+
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(json?.message || "Gagal membuat artikel");
+        }
+        return json;
+    }
+
+    async function handleSaveDraft() {
+        setToast("");
+        setErr("");
+
+        try {
+            setSaving(true);
+
+            if (isNew) {
+                const result = await createMultipart("draft");
+                const newId = result?.data?.id;
+                setToast("Draf berhasil dibuat");
+                if (newId) navigate(`/admin/arsipedia/${newId}/edit`, { replace: true });
+            } else {
+                const msg = validateUpdate();
+                if (msg) {
+                    setErr(msg);
+                    return;
+                }
+
+                await apiAdmin(ENDPOINTS.update(id), {
+                    method: "PUT",
+                    body: JSON.stringify({
+                        adminId,
+                        title: title.trim(),
+                        content,
+                        status: "draft",
+                        tags,
+                    }),
+                });
+
+                setStatus("draft");
+                setToast("Draf berhasil disimpan");
+            }
+        } catch (e) {
+            setErr(e.message || "Gagal menyimpan draf");
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function handlePublish() {
+        setToast("");
+        setErr("");
+
+        try {
+            setPublishing(true);
+
+            if (isNew) {
+                const result = await createMultipart("published");
+                const newId = result?.data?.id;
+                setToast("Artikel berhasil dipublikasikan");
+                if (newId) navigate(`/admin/arsipedia/${newId}/edit`, { replace: true });
+            } else {
+                const msg = validateUpdate();
+                if (msg) {
+                    setErr(msg);
+                    return;
+                }
+
+                await apiAdmin(ENDPOINTS.update(id), {
+                    method: "PUT",
+                    body: JSON.stringify({
+                        adminId,
+                        title: title.trim(),
+                        content,
+                        status: "published",
+                        tags,
+                    }),
+                });
+
+                setStatus("published");
+                setToast("Artikel berhasil dipublikasikan");
+            }
+        } catch (e) {
+            setErr(e.message || "Gagal mempublikasikan artikel");
+        } finally {
+            setPublishing(false);
+        }
+    }
+
+    async function handleDelete() {
+        if (isNew) return;
         try {
             setDeleting(true);
             setErr("");
-            await apiAdmin(ENDPOINTS.remove(deleteTarget.id), { method: "DELETE" });
-            setItems((prev) => prev.filter((x) => x.id !== deleteTarget.id));
+
+            await apiAdmin(ENDPOINTS.remove(id), { method: "DELETE" });
+
+            setDeleteOpen(false);
             setToast("Artikel berhasil dihapus");
-            setDeleteTarget(null);
+            navigate("/admin/arsipedia", { replace: true });
         } catch (e) {
-            if (String(e.message).includes("UNAUTHORIZED")) return goLogin();
             setErr(e.message || "Gagal menghapus artikel");
         } finally {
             setDeleting(false);
         }
-    };
+    }
+
+    const previewUrlNew = useMemo(() => {
+        if (!imageFile) return null;
+        return URL.createObjectURL(imageFile);
+    }, [imageFile]);
+
+    useEffect(() => {
+        return () => {
+            if (previewUrlNew) URL.revokeObjectURL(previewUrlNew);
+        };
+    }, [previewUrlNew]);
 
     return (
         <div className="min-h-[calc(100vh-120px)]">
             <div className="flex min-h-[calc(100vh-120px)] flex-col">
                 <div className="flex-1 space-y-6">
-                    <header className="flex items-start justify-between gap-4">
-                        <div>
-                            <h2 className="text-3xl font-extrabold text-slate-900">Arsipedia Admin</h2>
-                            <p className="mt-1 text-sm text-slate-500">Kelola artikel Arsipedia (draft/publish), edit, dan hapus.</p>
-                        </div>
-
+                    <div className="flex items-center justify-between gap-4">
                         <button
-                            onClick={() => navigate("/admin/arsipedia/new/edit")}
-                            className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
+                            onClick={() => navigate("/admin/arsipedia")}
+                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                         >
-                            <FiPlusCircle />
-                            Buat Artikel
+                            <FiArrowLeft />
+                            Kembali
                         </button>
-                    </header>
+                        <Toast text={toast} onClose={() => setToast("")} />
+                    </div>
 
-                    <Toast text={toast} onClose={() => setToast("")} />
+                    {err && (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{err}</div>
+                    )}
 
-                    {err ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
-                            <InlineError>{err}</InlineError>
+                    {loading ? (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+                            Memuat artikel...
                         </div>
-                    ) : null}
+                    ) : (
+                        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+                            {/* LEFT */}
+                            <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                                <div className="mb-4 text-xl font-extrabold text-slate-900">Editor Artikel</div>
 
-                    <section className="rounded-2xl border border-slate-200 bg-white p-6">
-                        <div className="mb-4 text-base font-bold text-slate-900">Daftar Artikel</div>
+                                <div className="space-y-5">
+                                    <div>
+                                        <label className="text-sm font-semibold text-slate-700">Judul Artikel</label>
+                                        <input
+                                            className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-slate-300"
+                                            placeholder="Masukkan judul artikel..."
+                                            value={title}
+                                            onChange={(e) => setTitle(e.target.value)}
+                                            disabled={saving || publishing || deleting}
+                                        />
+                                    </div>
 
-                        {loading ? (
-                            <div className="py-10 text-center text-sm text-slate-500">Memuat data...</div>
-                        ) : items.length ? (
-                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                                {items.map((a) => {
-                                    const imgUrl = resolveImageUrl(a.imagePath);
-                                    const excerpt =
-                                        (String(a.content || "").replace(/\s+/g, " ").trim().slice(0, 120) || "—") +
-                                        (String(a.content || "").length > 120 ? "…" : "");
+                                    <div>
+                                        <div className="text-lg font-extrabold text-slate-900">Konten Utama</div>
+                                        <label className="mt-3 block text-sm font-semibold text-slate-700">Konten Artikel</label>
+                                        <textarea
+                                            className="mt-2 min-h-[360px] w-full rounded-xl border border-slate-200 p-4 text-sm outline-none focus:border-slate-300"
+                                            placeholder="Tulis konten artikel..."
+                                            value={content}
+                                            onChange={(e) => setContent(e.target.value)}
+                                            disabled={saving || publishing || deleting}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
 
-                                    const tagList = String(a.tags || "")
-                                        .split(",")
-                                        .map((t) => t.trim())
-                                        .filter(Boolean)
-                                        .slice(0, 3);
+                            {/* RIGHT */}
+                            <div className="space-y-6">
+                                <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                                    <div className="text-lg font-extrabold text-slate-900">Pengaturan Artikel</div>
 
-                                    return (
-                                        <div key={a.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                            <div className="h-40 w-full bg-slate-100">
-                                                {imgUrl ? (
-                                                    <img
-                                                        src={imgUrl}
-                                                        alt={a.title}
-                                                        className="h-full w-full object-cover"
-                                                        loading="lazy"
-                                                        onError={(e) => {
-                                                            e.currentTarget.onerror = null;
-                                                            e.currentTarget.src = "/no-image.png";
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <div className="grid h-full place-items-center text-sm text-slate-500">No Image</div>
-                                                )}
-                                            </div>
-
-                                            <div className="p-5">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="min-w-0">
-                                                        <div className="truncate text-lg font-extrabold text-slate-900">{a.title || "-"}</div>
-                                                        <div className="mt-2 text-sm text-slate-600">{excerpt}</div>
-                                                    </div>
-                                                    {statusBadge(a.status)}
-                                                </div>
-
-                                                {tagList.length ? (
-                                                    <div className="mt-3 flex flex-wrap gap-2">
-                                                        {tagList.map((t) => (
-                                                            <span
-                                                                key={t}
-                                                                className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
-                                                            >
-                                                                {t}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                ) : null}
-
-                                                <div className="mt-4 text-xs text-slate-500">
-                                                    Dibuat {formatDate(a.createdAt)} • Update {formatDate(a.updatedAt)}
-                                                </div>
-
-                                                <div className="mt-4 flex items-center justify-end gap-2">
-                                                    <button
-                                                        onClick={() => navigate(`/admin/arsipedia/${a.id}/edit`)}
-                                                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                                    >
-                                                        <FiEdit2 />
-                                                        Edit
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setDeleteTarget(a)}
-                                                        className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                                                    >
-                                                        <FiTrash2 />
-                                                        Hapus
-                                                    </button>
-                                                </div>
-                                            </div>
+                                    <div className="mt-4 space-y-4">
+                                        <div>
+                                            <label className="text-sm font-semibold text-slate-700">Status</label>
+                                            <select
+                                                className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-slate-300"
+                                                value={status}
+                                                onChange={(e) => setStatus(e.target.value)}
+                                                disabled={saving || publishing || deleting}
+                                            >
+                                                <option value="draft">draft</option>
+                                                <option value="published">published</option>
+                                            </select>
+                                            <p className="mt-2 text-xs text-slate-500">
+                                                Tombol “Simpan Draf” dan “Publikasikan” akan menimpa status sesuai action.
+                                            </p>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        ) : (
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600">
-                                Belum ada artikel.
-                            </div>
-                        )}
-                    </section>
 
-                    <ConfirmModal
-                        open={Boolean(deleteTarget)}
-                        title="Hapus Artikel?"
-                        desc={
-                            deleteTarget
-                                ? `Anda yakin ingin menghapus artikel "${deleteTarget.title}"? Tindakan ini tidak dapat dibatalkan.`
-                                : ""
-                        }
-                        onClose={() => (deleting ? null : setDeleteTarget(null))}
-                        onConfirm={confirmDelete}
-                        loading={deleting}
-                    />
+                                        <div>
+                                            <label className="text-sm font-semibold text-slate-700">Tag</label>
+                                            <input
+                                                className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-4 text-sm outline-none focus:border-slate-300"
+                                                placeholder="arsitektur,desain,bangunan"
+                                                value={tags}
+                                                onChange={(e) => setTags(e.target.value)}
+                                                disabled={saving || publishing || deleting}
+                                            />
+                                            <p className="mt-2 text-xs text-slate-500">Backend menerima tags sebagai string.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                                    <div className="text-lg font-extrabold text-slate-900">Gambar</div>
+
+                                    <div className="mt-4">
+                                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                                            {/* PRIORITAS PREVIEW FILE BARU */}
+                                            {previewUrlNew ? (
+                                                <img src={previewUrlNew} alt="preview" className="h-44 w-full object-cover" />
+                                            ) : imageUrl ? (
+                                                <img
+                                                    src={imageUrl}
+                                                    alt="cover"
+                                                    className="h-44 w-full object-cover"
+                                                    onError={() => {
+                                                        // fallback kalau URL tidak valid
+                                                        setErr(
+                                                            `Gambar gagal dimuat. Cek apakah file benar-benar ada di folder uploads. URL: ${imageUrl}`
+                                                        );
+                                                    }}
+                                                />
+                                            ) : (
+                                                <div className="grid h-44 place-items-center text-sm text-slate-500">Belum ada gambar</div>
+                                            )}
+                                        </div>
+
+                                        {isNew ? (
+                                            <>
+                                                <label className="mt-3 block">
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                                                        disabled={saving || publishing || deleting}
+                                                    />
+                                                    <div
+                                                        className={`mt-3 inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 ${saving || publishing || deleting ? "opacity-60 pointer-events-none" : ""
+                                                            }`}
+                                                    >
+                                                        <FiUpload />
+                                                        {imageFile ? "Gambar Dipilih ✓" : "Unggah Gambar (Wajib)"}
+                                                    </div>
+                                                </label>
+                                                <p className="mt-2 text-xs text-slate-500">Backend mewajibkan image saat create.</p>
+                                            </>
+                                        ) : (
+                                            <div className="mt-3 text-xs text-slate-500">
+                                                <div className="font-semibold">imagePath:</div>
+                                                <div className="break-all">{imagePath || "-"}</div>
+                                                <div className="mt-2">
+                                                    Saat ini endpoint update tidak memakai upload middleware, jadi gambar tidak bisa diganti lewat UI ini.
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                                    <div className="text-lg font-extrabold text-slate-900">Aksi</div>
+
+                                    <div className="mt-4 space-y-3">
+                                        <button
+                                            onClick={handleSaveDraft}
+                                            disabled={saving || publishing || deleting}
+                                            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                                        >
+                                            <FiSave />
+                                            {saving ? "Menyimpan..." : "Simpan Draf"}
+                                        </button>
+
+                                        <button
+                                            onClick={handlePublish}
+                                            disabled={saving || publishing || deleting}
+                                            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-800 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-60"
+                                        >
+                                            <FiSend />
+                                            {publishing ? "Mempublikasikan..." : "Publikasikan"}
+                                        </button>
+
+                                        {!isNew && (
+                                            <button
+                                                onClick={() => setDeleteOpen(true)}
+                                                disabled={saving || publishing || deleting}
+                                                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
+                                            >
+                                                <FiTrash2 />
+                                                Hapus Artikel
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <ConfirmModal
+                                    open={deleteOpen}
+                                    title="Hapus Artikel?"
+                                    desc="Anda yakin ingin menghapus artikel ini? Tindakan ini tidak dapat dibatalkan."
+                                    onClose={() => (deleting ? null : setDeleteOpen(false))}
+                                    onConfirm={handleDelete}
+                                    loading={deleting}
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                <footer className="mt-10 border-t border-slate-200 py-4 text-center text-xs text-slate-500">
+                <div className="mt-10 border-t border-slate-200 py-4 text-center text-xs text-slate-500">
                     © 2025 Arsipedia Admin Panel. All rights reserved.
-                </footer>
+                </div>
             </div>
         </div>
     );

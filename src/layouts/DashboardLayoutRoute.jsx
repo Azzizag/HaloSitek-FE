@@ -14,24 +14,26 @@ export default function DashboardLayoutRoute() {
     const token = getAccessToken();
     const role = mapJwtRole(getRoleFromToken(token));
 
+    // src/layouts/DashboardLayoutRoute.jsx
+
     const menus =
         role === "admin"
             ? [
-                { label: "Dashboard", to: "/admin/dashboard" },
+                { label: "Dashboard", to: "/admin/dashboard", end: true }, // ✅
                 { label: "Users", to: "/admin/users" },
                 { label: "Architects", to: "/admin/architects" },
                 { label: "Designs", to: "/admin/designs" },
             ]
             : role === "arsitek"
                 ? [
-                    { label: "Dashboard", to: "/dashboard/architect" },
+                    { label: "Dashboard", to: "/dashboard/architect", end: true }, // ✅
                     { label: "Arsipedia", to: "/arsipedia" },
                     { label: "Arsitek", to: "/dashboard/search/architect" },
                     { label: "Unggah Desain", to: "/dashboard/architect/upload" },
                     { label: "Katalog", to: "/catalog" },
                 ]
                 : [
-                    { label: "Dashboard", to: "/dashboard/user" },
+                    { label: "Dashboard", to: "/dashboard/user", end: true }, // ✅
                     { label: "Arsitek", to: "/dashboard/search/architect" },
                     { label: "Arsipedia", to: "/arsipedia" },
                     { label: "Katalog", to: "/catalog" },

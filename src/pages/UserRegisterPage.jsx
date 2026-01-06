@@ -1,4 +1,4 @@
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import AuthShell from "../layouts/AuthShell";
 import Logo from "../components/Logo";
@@ -7,24 +7,20 @@ import { Button, Input, Label } from "../components/ui";
 const BG_URL =
     "https://images.unsplash.com/photo-1460353581641-37baddab0fa2?q=80&w=1920&auto=format&fit=crop";
 
-// base URL API backend
 const API_BASE_URL =
-    import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
+    import.meta.env.VITE_API_BASE_URL;
 
 export default function UserRegisterPage() {
     const navigate = useNavigate();
-    const [params] = useSearchParams();
-    const hasEmailError = params.get("error") === "email";
 
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState("");
     const [fieldErrors, setFieldErrors] = useState({});
 
-
     async function handleSubmit(e) {
         e.preventDefault();
         setErrorMsg("");
-        setFieldErrors({}); // reset error per field
+        setFieldErrors({});
 
         const f = new FormData(e.currentTarget);
         const fullName = (f.get("fullName") || "").toString().trim();
@@ -32,7 +28,6 @@ export default function UserRegisterPage() {
         const email = (f.get("email") || "").toString().trim();
         const password = (f.get("password") || "").toString().trim();
 
-        // validasi sederhana di front-end
         if (!fullName || !username || !email || !password) {
             setErrorMsg("Semua field wajib diisi.");
             return;
@@ -43,53 +38,53 @@ export default function UserRegisterPage() {
 
             const res = await fetch(`${API_BASE_URL}/users/register`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({
-                    fullName,
-                    username,
-                    email,
-                    password,
-                }),
+                body: JSON.stringify({ fullName, username, email, password }),
             });
 
             const data = await res.json().catch(() => ({}));
 
-            // ❌ email sudah terdaftar (logic lama tetap dipakai)
+            // ✅ Email sudah terdaftar → tampilkan error saja (tanpa navigate, tanpa ubah tombol)
             if (res.status === 409 || (data.message && /email/i.test(data.message))) {
-                navigate("/register/users?error=email");
+                setErrorMsg("Email sudah terdaftar. Silakan gunakan email lain.");
+                setFieldErrors((prev) => ({ ...prev, email: "Email sudah terdaftar" }));
                 return;
             }
 
-            // ❌ validasi backend gagal (400 + errors array)
+            // ❌ Error lain dari backend
             if (!res.ok) {
-                // kalau backend kirim errors: [{ field, message }, ...]
                 if (Array.isArray(data.errors)) {
                     const mapped = {};
                     for (const err of data.errors) {
-                        if (err.field && err.message) {
-                            mapped[err.field] = err.message;
-                        }
+                        if (err.field && err.message) mapped[err.field] = err.message;
                     }
                     setFieldErrors(mapped);
                 }
-
-                // pesan umum di banner merah
                 setErrorMsg(data.message || "Gagal mendaftarkan akun");
                 return;
             }
 
-            // ✅ sukses → arahkan ke halaman success
+            // ✅ Sukses
             navigate("/register/users/success");
         } catch (err) {
-            setErrorMsg(err.message || "Terjadi kesalahan");
+            setErrorMsg(err?.message || "Terjadi kesalahan");
         } finally {
             setLoading(false);
         }
     }
 
+    // helper: saat user mengetik ulang, hapus error untuk field tersebut (UX register normal)
+    function clearFieldError(field) {
+        setFieldErrors((prev) => {
+            if (!prev?.[field]) return prev;
+            const next = { ...prev };
+            delete next[field];
+            return next;
+        });
+        // optional: hilangkan banner kalau user mulai memperbaiki
+        if (errorMsg) setErrorMsg("");
+    }
 
     return (
         <AuthShell bgUrl={BG_URL}>
@@ -104,8 +99,7 @@ export default function UserRegisterPage() {
                     </p>
                 </div>
 
-                {/* error umum */}
-                {errorMsg && !hasEmailError && (
+                {errorMsg && (
                     <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
                         {errorMsg}
                     </div>
@@ -118,6 +112,7 @@ export default function UserRegisterPage() {
                             id="fullName"
                             name="fullName"
                             placeholder="Masukkan nama lengkap Anda"
+                            onChange={() => clearFieldError("fullName")}
                         />
                         {fieldErrors.fullName && (
                             <p className="mt-1 text-xs text-red-600">{fieldErrors.fullName}</p>
@@ -130,12 +125,12 @@ export default function UserRegisterPage() {
                             id="username"
                             name="username"
                             placeholder="Pilih nama pengguna Anda"
+                            onChange={() => clearFieldError("username")}
                         />
                         {fieldErrors.username && (
                             <p className="mt-1 text-xs text-red-600">{fieldErrors.username}</p>
                         )}
                     </div>
-
 
                     <div className="space-y-1">
                         <Label htmlFor="email">Email</Label>
@@ -144,17 +139,12 @@ export default function UserRegisterPage() {
                             name="email"
                             type="email"
                             placeholder="Masukkan alamat email Anda"
+                            onChange={() => clearFieldError("email")}
                         />
-                        {hasEmailError && (
-                            <p className="mt-1 text-xs font-medium text-red-600">
-                                *Email sudah terdaftar
-                            </p>
-                        )}
-                        {fieldErrors.email && !hasEmailError && (
+                        {fieldErrors.email && (
                             <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
                         )}
                     </div>
-
 
                     <div className="space-y-1">
                         <Label htmlFor="password">Kata Sandi</Label>
@@ -163,36 +153,28 @@ export default function UserRegisterPage() {
                             name="password"
                             type="password"
                             placeholder="Buat kata sandi Anda"
+                            onChange={() => clearFieldError("password")}
                         />
                         {fieldErrors.password && (
                             <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
                         )}
                     </div>
 
-
-                    {hasEmailError ? (
-                        // State error email → hanya tombol Kembali
-                        <div className="pt-2">
-                            <Button type="button" onClick={() => navigate(-1)} className="w-full">
-                                Kembali
-                            </Button>
-                        </div>
-                    ) : (
-                        // Normal → Kembali (muted) + Daftar (primary)
-                        <div className="grid grid-cols-2 gap-3 pt-2">
-                            <Button
-                                type="button"
-                                variant="muted"
-                                onClick={() => navigate(-1)}
-                                className="w-full"
-                            >
-                                Kembali
-                            </Button>
-                            <Button type="submit" className="w-full" disabled={loading}>
-                                {loading ? "Memproses..." : "Daftar"}
-                            </Button>
-                        </div>
-                    )}
+                    {/* ✅ Register normal: tombol tidak berubah-ubah saat error */}
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                        <Button
+                            type="button"
+                            variant="muted"
+                            onClick={() => navigate("/login?role=User")}
+                            className="w-full"
+                            disabled={loading}
+                        >
+                            Kembali
+                        </Button>
+                        <Button type="submit" className="w-full" disabled={loading}>
+                            {loading ? "Memproses..." : "Daftar"}
+                        </Button>
+                    </div>
                 </form>
             </div>
         </AuthShell>

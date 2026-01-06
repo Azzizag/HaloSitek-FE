@@ -15,7 +15,7 @@ const items = [
 ];
 
 const ENDPOINTS = {
-    logout: "/api/admins/logout", // <- sesuaikan kalau beda
+    logout: "/admins/logout", // <- sesuaikan kalau beda
 };
 
 export default function Sidebar() {

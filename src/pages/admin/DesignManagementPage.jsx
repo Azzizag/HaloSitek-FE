@@ -17,16 +17,16 @@ import { getAdminToken, clearAdminToken } from "../../lib/adminAuth";
 /* =========================
    Config
 ========================= */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
 const ENDPOINTS = {
     // public list
-    listPublic: (page, limit) => `/api/designs?page=${page}&limit=${limit}`,
+    listPublic: (page, limit) => `/designs?page=${page}&limit=${limit}`,
 
     // ✅ admin endpoints (ubah kalau route kamu beda)
-    adminUpdate: (id) => `/api/designs/admin/${id}`,
-    adminDelete: (id) => `/api/designs/admin/${id}`,
+    adminUpdate: (id) => `/designs/admin/${id}`,
+    adminDelete: (id) => `/designs/admin/${id}`,
 };
 
 /* =========================

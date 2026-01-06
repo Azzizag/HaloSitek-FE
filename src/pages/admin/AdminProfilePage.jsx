@@ -46,7 +46,7 @@ export default function AdminProfilePage() {
                 setLoading(true);
                 setError("");
 
-                const res = await apiAdmin("/api/admins/auth/profile");
+                const res = await apiAdmin("/admins/auth/profile");
                 const data = res?.data ?? res;
 
                 const mapped = {
@@ -80,7 +80,7 @@ export default function AdminProfilePage() {
             setError("");
 
             // ✅ KIRIM field yang benar: fullName
-            const res = await apiAdmin("/api/admins/auth/profile", {
+            const res = await apiAdmin("/admins/auth/profile", {
                 method: "PUT",
                 body: JSON.stringify({ fullName, email }),
             });
@@ -114,7 +114,7 @@ export default function AdminProfilePage() {
             setChanging(true);
             setError("");
 
-            await apiAdmin("/api/admins/auth/change-password", {
+            await apiAdmin("/admins/auth/change-password", {
                 method: "POST",
                 body: JSON.stringify({
                     currentPassword,

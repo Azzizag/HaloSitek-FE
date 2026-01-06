@@ -4,10 +4,10 @@ import { FiPlus, FiEdit2, FiTrash2, FiSearch, FiX, FiCheckCircle } from "react-i
 import { apiAdmin } from "../../lib/apiAdmin";
 
 const ENDPOINTS = {
-    list: (qs) => `/api/admin/users${qs ? `?${qs}` : ""}`,
-    create: `/api/admin/users`,
-    update: (id) => `/api/admin/users/${id}`,
-    remove: (id) => `/api/admin/users/${id}`,
+    list: (qs) => `/admin/users${qs ? `?${qs}` : ""}`,
+    create: `/admin/users`,
+    update: (id) => `/admin/users/${id}`,
+    remove: (id) => `/admin/users/${id}`,
 };
 
 function formatDate(iso) {

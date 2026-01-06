@@ -1,20 +1,14 @@
 import axios from "axios";
 
-/**
- * Backend kamu: http://localhost:3000
- * API kamu: /api
- * (tanpa .env frontend)
- */
-const API_ORIGIN = "http://localhost:3000";
-const API_BASE_URL = `${API_ORIGIN}/api`;
+const API_ORIGIN = import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = `${API_ORIGIN}`;
 
 export const apiArsipedia = axios.create({
-    baseURL: API_BASE_URL, // ✅ FIX: tidak lagi undefined
+    baseURL: API_BASE_URL,
     withCredentials: true,
 });
 
-// karena backend ResponseFormatter.success(res, result, msg)
-// maka data utama ada di res.data.data
+
 export async function getArsipediaList(config) {
     const res = await apiArsipedia.get("/arsipedia", config);
     return res.data?.data ?? [];

@@ -7,7 +7,7 @@ import { apiAdmin } from "../../lib/apiAdmin";
 import { clearAdminToken } from "../../lib/adminAuth";
 
 const ENDPOINTS = {
-    dashboard: "/api/admins/auth/dashboard",
+    dashboard: "/admins/auth/dashboard",
 };
 
 function isUnauthorized(e) {

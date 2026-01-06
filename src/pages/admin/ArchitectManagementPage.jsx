@@ -6,11 +6,11 @@ import { clearAdminToken } from "../../lib/adminAuth";
 import { useNavigate } from "react-router-dom";
 
 const ENDPOINTS = {
-    architects: "/api/admin/architects",
-    architectDetail: (id) => `/api/admin/architects/${id}`,
-    architectStatus: (id) => `/api/admin/architects/${id}/status`,
-    architectDelete: (id) => `/api/admin/architects/${id}`,
-    txList: "/api/admin/transactions", // query: architectId
+    architects: "/admin/architects",
+    architectDetail: (id) => `/admin/architects/${id}`,
+    architectStatus: (id) => `/admin/architects/${id}/status`,
+    architectDelete: (id) => `/admin/architects/${id}`,
+    txList: "/admin/transactions", // query: architectId
 };
 
 function isUnauthorized(e) {

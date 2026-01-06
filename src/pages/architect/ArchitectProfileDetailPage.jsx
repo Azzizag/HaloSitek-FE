@@ -3,8 +3,30 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FiPhone, FiMail, FiAward, FiLink, FiCheckCircle, FiEye } from "react-icons/fi";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
-const FALLBACK_AVATAR = "/no-image.png";
+function getApiRoot() {
+    const raw = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/+$/, "");
+    if (!raw) return "/api";
+    if (/\/api$/i.test(raw)) return raw;
+    return `${raw}/api`;
+}
+
+function getBackendOrigin(apiRoot) {
+    if (!apiRoot) return "";
+    if (apiRoot === "/api") return "";
+    return apiRoot.replace(/\/api$/i, "");
+}
+
+const API_ROOT = getApiRoot();
+const BACKEND_ORIGIN = getBackendOrigin(API_ROOT);
+
+const FALLBACK_IMG =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="800" height="800">
+    <rect width="100%" height="100%" fill="#e2e8f0"/>
+    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+      fill="#64748b" font-family="Arial" font-size="36">No Image</text>
+  </svg>`);
 
 function getUserToken() {
     return localStorage.getItem("access_token") || "";
@@ -16,8 +38,7 @@ async function postWithUserToken(url, token) {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         credentials: "include",
     });
-    if (!res.ok) return false;
-    return true;
+    return res.ok;
 }
 
 async function getJSON(url) {
@@ -25,6 +46,34 @@ async function getJSON(url) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.message || "Request gagal");
     return data;
+}
+
+function normalizePath(u) {
+    if (!u) return null;
+    return String(u).trim().replace(/\\/g, "/");
+}
+
+function toAbsoluteFileUrl(u) {
+    const cleaned = normalizePath(u);
+    if (!cleaned) return null;
+
+    if (/^https?:\/\//i.test(cleaned)) return cleaned;
+    if (cleaned.startsWith("data:") || cleaned.startsWith("blob:")) return cleaned;
+
+    const path = cleaned.startsWith("/") ? cleaned : `/${cleaned}`;
+    if (!BACKEND_ORIGIN) return path; // butuh rewrite /uploads kalau frontend beda domain
+    return `${BACKEND_ORIGIN}${path}`;
+}
+
+function safeJsonParse(value, fallback) {
+    if (value == null) return fallback;
+    if (Array.isArray(value) || typeof value === "object") return value;
+    if (typeof value !== "string") return fallback;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
 }
 
 function Pill({ children, className = "" }) {
@@ -57,7 +106,7 @@ export default function ArchitectProfileDetailPage() {
     const [err, setErr] = useState("");
     const [profile, setProfile] = useState(null);
 
-    // ✅ views
+    // views
     const [viewCount, setViewCount] = useState(0);
     const trackedRef = useRef(false);
 
@@ -69,7 +118,7 @@ export default function ArchitectProfileDetailPage() {
                 setLoading(true);
                 setErr("");
 
-                const res = await fetch(`${API_BASE_URL}/api/architects/public/${encodeURIComponent(id)}`, {
+                const res = await fetch(`${API_ROOT}/architects/public/${encodeURIComponent(id)}`, {
                     method: "GET",
                     credentials: "include",
                 });
@@ -94,7 +143,7 @@ export default function ArchitectProfileDetailPage() {
         };
     }, [id]);
 
-    // ✅ Track view: hanya USER
+    // Track view: hanya USER
     useEffect(() => {
         let mounted = true;
 
@@ -105,17 +154,12 @@ export default function ArchitectProfileDetailPage() {
                 const userToken = getUserToken();
                 const isUserLoggedIn = !!userToken;
 
-                // hanya hitung jika USER login
                 if (isUserLoggedIn && !trackedRef.current) {
                     trackedRef.current = true;
-                    await postWithUserToken(
-                        `${API_BASE_URL}/api/views/architect/${encodeURIComponent(id)}`,
-                        userToken
-                    );
+                    await postWithUserToken(`${API_ROOT}/views/architect/${encodeURIComponent(id)}`, userToken);
                 }
 
-                // Ambil summary total views (public)
-                const summary = await getJSON(`${API_BASE_URL}/api/views/architect/${encodeURIComponent(id)}/summary`);
+                const summary = await getJSON(`${API_ROOT}/views/architect/${encodeURIComponent(id)}/summary`);
                 const raw = summary?.data ?? summary;
                 const total = Number(raw?.totalViews ?? raw?.viewCount ?? raw?.count ?? 0) || 0;
 
@@ -136,7 +180,7 @@ export default function ArchitectProfileDetailPage() {
             name: p?.name || "-",
             email: p?.email || "-",
             phone: p?.phone || "-",
-            avatarUrl: p?.profilePictureUrl || FALLBACK_AVATAR,
+            avatarUrl: toAbsoluteFileUrl(p?.profilePictureUrl) || FALLBACK_IMG,
             status: p?.status || "",
             verified: !!p?.emailVerified,
             years: typeof p?.tahunPengalaman === "number" ? p.tahunPengalaman : null,
@@ -144,10 +188,17 @@ export default function ArchitectProfileDetailPage() {
         };
     }, [profile]);
 
+    const skills = useMemo(() => {
+        const raw = safeJsonParse(profile?.keahlianKhusus, []);
+        return Array.isArray(raw) ? raw.filter(Boolean) : [];
+    }, [profile]);
+
     if (loading) {
         return (
             <div className="mx-auto w-full max-w-7xl px-6 py-10">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">Memuat profil...</div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
+                    Memuat profil...
+                </div>
             </div>
         );
     }
@@ -163,7 +214,9 @@ export default function ArchitectProfileDetailPage() {
     if (!profile) {
         return (
             <div className="mx-auto w-full max-w-7xl px-6 py-10">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">Profil tidak ditemukan.</div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
+                    Profil tidak ditemukan.
+                </div>
             </div>
         );
     }
@@ -178,8 +231,8 @@ export default function ArchitectProfileDetailPage() {
                         alt={header.name}
                         className="h-full w-full object-cover"
                         onError={(e) => {
-                            if (e.currentTarget.src.endsWith(FALLBACK_AVATAR)) return;
-                            e.currentTarget.src = FALLBACK_AVATAR;
+                            if (e.currentTarget.src === FALLBACK_IMG) return;
+                            e.currentTarget.src = FALLBACK_IMG;
                         }}
                     />
                 </div>
@@ -191,7 +244,6 @@ export default function ArchitectProfileDetailPage() {
                     {header.years !== null ? ` • ${header.years} tahun pengalaman` : ""}
                 </p>
 
-                {/* ✅ Views info */}
                 <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                     <Pill className="border-slate-200 bg-white text-slate-700">
                         <FiEye className="mr-1 text-slate-500" />
@@ -209,7 +261,6 @@ export default function ArchitectProfileDetailPage() {
                     )}
                 </div>
 
-                {/* Kontak */}
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
                     <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                         <FiPhone className="text-slate-500" />
@@ -220,6 +271,16 @@ export default function ArchitectProfileDetailPage() {
                         <FiMail className="text-slate-500" />
                         <span className="font-semibold">{header.email}</span>
                     </div>
+                </div>
+
+                <div className="mt-6">
+                    {skills.length ? (
+                        <div className="flex flex-wrap justify-center gap-2">
+                            {skills.map((s) => (
+                                <Pill key={s}>{s}</Pill>
+                            ))}
+                        </div>
+                    ) : null}
                 </div>
             </div>
 
@@ -241,7 +302,12 @@ export default function ArchitectProfileDetailPage() {
                                             {c.berkasUrl ? (
                                                 <>
                                                     {" • "}
-                                                    <a href={c.berkasUrl} target="_blank" rel="noreferrer" className="font-semibold text-slate-600 hover:underline">
+                                                    <a
+                                                        href={toAbsoluteFileUrl(c.berkasUrl)}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="font-semibold text-slate-600 hover:underline"
+                                                    >
                                                         Lihat Berkas
                                                     </a>
                                                 </>
@@ -296,37 +362,48 @@ export default function ArchitectProfileDetailPage() {
                 <div className="mt-6">
                     {(profile?.designs || []).length ? (
                         <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3">
-                            {profile.designs.map((d) => (
-                                <Link
-                                    key={d.id}
-                                    to={`/catalog/designs/${d.id}`}
-                                    className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                                >
-                                    <div className="h-40 w-full bg-slate-100">
-                                        <img
-                                            src={(d?.foto_bangunan && d.foto_bangunan[0]) || d?.designImage || FALLBACK_AVATAR}
-                                            alt={d.title}
-                                            className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                                            loading="lazy"
-                                            onError={(e) => {
-                                                if (e.currentTarget.src.endsWith(FALLBACK_AVATAR)) return;
-                                                e.currentTarget.src = FALLBACK_AVATAR;
-                                            }}
-                                        />
-                                    </div>
+                            {profile.designs.map((d) => {
+                                const photos = safeJsonParse(d?.foto_bangunan, []);
+                                const firstPhoto = Array.isArray(photos) ? photos[0] : null;
 
-                                    <div className="p-4">
-                                        <div className="truncate text-sm font-extrabold text-slate-900">{d.title || "Untitled Design"}</div>
-                                        <div className="mt-1 text-xs text-slate-500">Dibuat: {formatDate(d.createdAt)}</div>
-                                        <div className="mt-3 text-xs font-semibold text-slate-700 underline opacity-0 transition group-hover:opacity-100">
-                                            Lihat Detail
+                                const cover = toAbsoluteFileUrl(firstPhoto || d?.designImage) || FALLBACK_IMG;
+
+                                return (
+                                    <Link
+                                        key={d.id}
+                                        to={`/catalog/designs/${d.id}`}
+                                        className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                                    >
+                                        <div className="h-40 w-full bg-slate-100">
+                                            <img
+                                                src={cover}
+                                                alt={d.title}
+                                                className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                                                loading="lazy"
+                                                onError={(e) => {
+                                                    if (e.currentTarget.src === FALLBACK_IMG) return;
+                                                    e.currentTarget.src = FALLBACK_IMG;
+                                                }}
+                                            />
                                         </div>
-                                    </div>
-                                </Link>
-                            ))}
+
+                                        <div className="p-4">
+                                            <div className="truncate text-sm font-extrabold text-slate-900">
+                                                {d.title || "Untitled Design"}
+                                            </div>
+                                            <div className="mt-1 text-xs text-slate-500">Dibuat: {formatDate(d.createdAt)}</div>
+                                            <div className="mt-3 text-xs font-semibold text-slate-700 underline opacity-0 transition group-hover:opacity-100">
+                                                Lihat Detail
+                                            </div>
+                                        </div>
+                                    </Link>
+                                );
+                            })}
                         </div>
                     ) : (
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Belum ada desain.</div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+                            Belum ada desain.
+                        </div>
                     )}
                 </div>
             </div>

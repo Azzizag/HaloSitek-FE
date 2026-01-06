@@ -37,7 +37,9 @@ export default function DesignDetailPage() {
                 const mapped = {
                     id: d?.id,
                     title: d?.title || "Untitled",
-                    completedAt: d?.updatedAt ? `Terakhir diperbarui ${new Date(d.updatedAt).toLocaleDateString("id-ID")}` : "",
+                    completedAt: d?.updatedAt
+                        ? `Terakhir diperbarui ${new Date(d.updatedAt).toLocaleDateString("id-ID")}`
+                        : "",
                     hero: hero || "https://via.placeholder.com/1800x900?text=No+Image",
                     gallery: bangunan.slice(0, 10).map(normalizeFileUrl).filter(Boolean),
                     about: d?.description || "-",
@@ -51,6 +53,8 @@ export default function DesignDetailPage() {
                         ? "Berikut adalah foto denah yang diunggah arsitek untuk proyek ini."
                         : "Belum ada foto denah untuk proyek ini.",
                     denahImages: denah.map(normalizeFileUrl).filter(Boolean),
+
+                    // ✅ arsitek
                     architect: {
                         id: d?.architect?.id, // ✅ dibutuhkan untuk navigasi
                         name: d?.architect?.name || "Arsitek",
@@ -62,6 +66,14 @@ export default function DesignDetailPage() {
                             normalizeFileUrl(d?.architect?.profilePictureUrl) ||
                             "https://via.placeholder.com/256x256?text=Avatar",
                     },
+
+                    // ✅ tambah: statistik views dari backend
+                    views: typeof d?.views === "number" ? d.views : Number(d?.views || 0),
+                    uniqueViewers:
+                        typeof d?.uniqueViewers === "number"
+                            ? d.uniqueViewers
+                            : Number(d?.uniqueViewers || 0),
+                    viewsBreakdown: d?.viewsBreakdown || null,
                 };
 
                 setData(mapped);
@@ -70,11 +82,7 @@ export default function DesignDetailPage() {
                 setActiveImage(mapped.hero);
             } catch (e) {
                 if (!alive) return;
-                setErrMsg(
-                    e?.response?.data?.message ||
-                    e?.message ||
-                    "Gagal mengambil detail design"
-                );
+                setErrMsg(e?.response?.data?.message || e?.message || "Gagal mengambil detail design");
                 setData(null);
                 setActiveImage("");
             } finally {
@@ -129,6 +137,11 @@ export default function DesignDetailPage() {
     const heroSrc = activeImage || data.hero;
     const architectId = data?.architect?.id;
 
+    const usersViews = data?.viewsBreakdown?.users?.views ?? null;
+    const usersUnique = data?.viewsBreakdown?.users?.unique ?? null;
+    const archViews = data?.viewsBreakdown?.architects?.views ?? null;
+    const archUnique = data?.viewsBreakdown?.architects?.unique ?? null;
+
     return (
         <div className="min-h-screen bg-white">
             <main className="mx-auto max-w-7xl px-6 py-10">
@@ -139,12 +152,17 @@ export default function DesignDetailPage() {
                     ← Kembali ke Proyek
                 </Link>
 
-                <h1 className="mt-6 text-4xl font-extrabold leading-tight text-slate-900">
-                    {data.title}
-                </h1>
+                <h1 className="mt-6 text-4xl font-extrabold leading-tight text-slate-900">{data.title}</h1>
                 <p className="mt-2 text-sm text-slate-500">{data.completedAt || ""}</p>
 
-                {/* HERO (layout sama, hanya ditambah klik untuk zoom + src dari activeImage) */}
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold">
+                        👁️ {Number(data?.views || 0).toLocaleString("id-ID")} tayangan
+                    </span>
+                </div>
+
+
+                {/* HERO */}
                 <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
                     <img
                         src={heroSrc}
@@ -155,7 +173,7 @@ export default function DesignDetailPage() {
                     />
                 </div>
 
-                {/* GALLERY thumbs (layout sama: grid-cols-5) + klik untuk ganti gambar utama */}
+                {/* GALLERY thumbs */}
                 {Array.isArray(data.gallery) && data.gallery.length > 0 && (
                     <div className="mt-4 grid grid-cols-5 gap-3">
                         {data.gallery.slice(0, 5).map((src, idx) => {
@@ -167,9 +185,7 @@ export default function DesignDetailPage() {
                                     onClick={() => setActiveImage(src)}
                                     className={[
                                         "overflow-hidden rounded-2xl border bg-slate-100 transition",
-                                        isActive
-                                            ? "border-slate-900 ring-2 ring-slate-900"
-                                            : "border-slate-200 hover:border-slate-400",
+                                        isActive ? "border-slate-900 ring-2 ring-slate-900" : "border-slate-200 hover:border-slate-400",
                                     ].join(" ")}
                                     title="Klik untuk jadikan gambar utama"
                                 >
@@ -180,7 +196,7 @@ export default function DesignDetailPage() {
                     </div>
                 )}
 
-                {/* ARCHITECT CARD (layout sama) + clickable navigate */}
+                {/* ARCHITECT CARD */}
                 <div
                     className={[
                         "mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm",
@@ -200,16 +216,10 @@ export default function DesignDetailPage() {
                     <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-4">
                             <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
-                                <img
-                                    src={data.architect?.avatar}
-                                    alt="arch"
-                                    className="h-full w-full object-cover"
-                                />
+                                <img src={data.architect?.avatar} alt="arch" className="h-full w-full object-cover" />
                             </div>
                             <div>
-                                <div className="text-sm font-extrabold text-slate-900">
-                                    {data.architect?.name}
-                                </div>
+                                <div className="text-sm font-extrabold text-slate-900">{data.architect?.name}</div>
                                 <div className="text-xs text-slate-500">{data.architect?.title}</div>
                             </div>
                         </div>
@@ -241,11 +251,9 @@ export default function DesignDetailPage() {
                     </div>
                 </div>
 
-                {/* Denah (layout sama) + klik gambar denah set hero + buka modal */}
+                {/* Denah */}
                 <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-                    <div className="text-lg font-extrabold text-slate-900">
-                        {data.philosophyTitle || "Denah / Detail Teknis"}
-                    </div>
+                    <div className="text-lg font-extrabold text-slate-900">{data.philosophyTitle || "Denah / Detail Teknis"}</div>
                     <div className="mt-4 text-sm leading-6 text-slate-600">{data.philosophy}</div>
 
                     {Array.isArray(data.denahImages) && data.denahImages.length > 0 && (
@@ -269,7 +277,7 @@ export default function DesignDetailPage() {
                 </div>
             </main>
 
-            {/* ✅ MODAL ZOOM FULLSCREEN (baru) */}
+            {/* MODAL ZOOM FULLSCREEN */}
             {zoomOpen && (
                 <div
                     className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
@@ -289,11 +297,7 @@ export default function DesignDetailPage() {
                         </button>
 
                         <div className="flex max-h-[92vh] items-center justify-center">
-                            <img
-                                src={heroSrc}
-                                alt="zoom"
-                                className="max-h-[92vh] w-auto max-w-full object-contain"
-                            />
+                            <img src={heroSrc} alt="zoom" className="max-h-[92vh] w-auto max-w-full object-contain" />
                         </div>
                     </div>
                 </div>

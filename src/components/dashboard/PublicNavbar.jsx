@@ -4,7 +4,7 @@ import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { FiUser, FiLogOut } from "react-icons/fi";
 import { getAccessToken, getRoleFromToken, clearAccessToken } from "../../lib/authClient";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 function getSessionRole() {
     const token = getAccessToken();
@@ -112,7 +112,7 @@ export default function PublicNavbar({ menus = [], userName = "Joni", avatarUrl 
 
             try {
                 if (role === "arsitek") {
-                    const json = await fetchWithAuth("/api/architects/auth/profile", token);
+                    const json = await fetchWithAuth("/architects/auth/profile", token);
                     const prof = pickProfile(json);
                     if (!mounted) return;
                     setDisplayName(prof.name || "Arsitek");
@@ -122,7 +122,7 @@ export default function PublicNavbar({ menus = [], userName = "Joni", avatarUrl 
 
                 if (role === "user") {
                     // ✅ endpoint user yang kamu tunjukkan
-                    const json = await fetchWithAuth("/api/users/auth/profile", token);
+                    const json = await fetchWithAuth("/users/auth/profile", token);
                     const prof = pickProfile(json);
                     if (!mounted) return;
                     setDisplayName(prof.name || "User");
@@ -181,10 +181,12 @@ export default function PublicNavbar({ menus = [], userName = "Joni", avatarUrl 
                     </div>
 
                     <nav className="flex items-center gap-3">
+
                         {menus.map((m) => (
                             <NavLink
                                 key={m.to}
                                 to={m.to}
+                                end={!!m.end}   // ✅ penting: exact match jika end=true
                                 className={({ isActive }) =>
                                     [
                                         "rounded-lg border px-4 py-1.5 text-sm font-semibold transition",
@@ -197,6 +199,7 @@ export default function PublicNavbar({ menus = [], userName = "Joni", avatarUrl 
                                 {m.label}
                             </NavLink>
                         ))}
+
                     </nav>
                 </div>
 

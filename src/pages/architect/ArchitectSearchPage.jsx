@@ -2,63 +2,94 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
-const FALLBACK_IMG = "/no-image.png"; // pastikan ADA di /public/no-image.png
+/**
+ * ENV kamu bisa:
+ * - "" (kosong) -> pakai "/api" (relative)
+ * - "http://domain" -> jadi "http://domain/api"
+ * - "http://domain/api" -> tetap
+ */
+function getApiRoot() {
+    const raw = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/+$/, "");
+    if (!raw) return "/api";
+    if (/\/api$/i.test(raw)) return raw;
+    return `${raw}/api`;
+}
 
-function isFallbackSrc(src) {
-    try {
-        const u = new URL(src, window.location.origin);
-        return u.pathname.endsWith(FALLBACK_IMG);
-    } catch {
-        return String(src || "").endsWith(FALLBACK_IMG);
-    }
+// Origin backend untuk file static (uploads) = tanpa "/api"
+function getBackendOrigin(apiRoot) {
+    if (!apiRoot) return "";
+    if (apiRoot === "/api") return ""; // kalau pakai rewrite/proxy dari frontend
+    return apiRoot.replace(/\/api$/i, "");
+}
+
+const API_ROOT = getApiRoot();
+const BACKEND_ORIGIN = getBackendOrigin(API_ROOT);
+
+// ✅ fallback inline (tidak perlu file /public/no-image.png)
+const FALLBACK_IMG =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">
+    <rect width="100%" height="100%" fill="#f1f5f9"/>
+    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle"
+      fill="#64748b" font-family="Arial" font-size="42">No Image</text>
+  </svg>`);
+
+function normalizePath(url) {
+    if (!url) return null;
+    return String(url).trim().replace(/\\/g, "/");
+}
+
+function toAbsoluteFileUrl(url) {
+    const u = normalizePath(url);
+    if (!u) return null;
+
+    // absolute http/https
+    if (/^https?:\/\//i.test(u)) return u;
+
+    // data/blob
+    if (u.startsWith("data:") || u.startsWith("blob:")) return u;
+
+    // relative path => jadikan absolute ke BACKEND_ORIGIN (tanpa /api)
+    const path = u.startsWith("/") ? u : `/${u}`;
+
+    // kalau BACKEND_ORIGIN kosong, pakai path apa adanya (butuh rewrite /uploads di frontend)
+    if (!BACKEND_ORIGIN) return path;
+
+    return `${BACKEND_ORIGIN}${path}`;
 }
 
 function safeImg(url) {
-    const s = (url || "").toString().trim();
-    return s ? s : FALLBACK_IMG;
+    return toAbsoluteFileUrl(url) || FALLBACK_IMG;
 }
 
 function pickArchitectList(payload) {
-    // payload = hasil res.json()
-    // kita dukung beberapa bentuk:
-    // 1) { success, data: [ ... ] }
-    // 2) { success, data: { architects: [...], pagination: {...} } }
-    // 3) { data: { data: [...], pagination: {...} } } (kadang dibungkus)
-    // 4) { architects: [...] }
-
     const directArray =
-        Array.isArray(payload?.data) ? payload.data :
-            Array.isArray(payload?.architects) ? payload.architects :
-                Array.isArray(payload?.data?.architects) ? payload.data.architects :
-                    Array.isArray(payload?.data?.data) ? payload.data.data :
-                        Array.isArray(payload?.data?.data?.architects) ? payload.data.data.architects :
-                            [];
+        Array.isArray(payload?.data)
+            ? payload.data
+            : Array.isArray(payload?.architects)
+                ? payload.architects
+                : Array.isArray(payload?.data?.architects)
+                    ? payload.data.architects
+                    : Array.isArray(payload?.data?.data)
+                        ? payload.data.data
+                        : Array.isArray(payload?.data?.data?.architects)
+                            ? payload.data.data.architects
+                            : [];
 
-    // kalau backend sempat “campur” data desain + arsitek,
-    // kita filter yang bentuknya arsitek (punya name/email/phone)
-    const cleaned = directArray.filter((x) => {
-        const hasArchitectShape =
-            x && (x.name || x.email || x.phone || x.areaPengalaman || x.tahunPengalaman);
-        return Boolean(hasArchitectShape);
-    });
-
-    const pagination =
-        payload?.pagination ||
-        payload?.data?.pagination ||
-        payload?.data?.data?.pagination ||
-        null;
-
+    const cleaned = directArray.filter((x) => x && (x.name || x.email || x.phone || x.areaPengalaman || x.tahunPengalaman));
+    const pagination = payload?.pagination || payload?.data?.pagination || payload?.data?.data?.pagination || null;
     return { list: cleaned, pagination };
 }
 
 function ArchitectCard({ item }) {
-    const [imgSrc, setImgSrc] = useState(() =>
-        safeImg(item?.profilePictureUrl || item?.avatarUrl)
-    );
+    const pickUrl = (it) => it?.profilePictureUrl || it?.avatarUrl;
+
+    const [imgSrc, setImgSrc] = useState(() => safeImg(pickUrl(item)));
 
     useEffect(() => {
-        setImgSrc(safeImg(item?.profilePictureUrl || item?.avatarUrl));
+        setImgSrc(safeImg(pickUrl(item)));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [item?.profilePictureUrl, item?.avatarUrl]);
 
     return (
@@ -70,8 +101,8 @@ function ArchitectCard({ item }) {
                     className="h-full w-full object-cover"
                     loading="lazy"
                     onError={(e) => {
-                        // ✅ cegah infinite loop
-                        if (isFallbackSrc(e.currentTarget.src)) return;
+                        // cegah loop
+                        if (e.currentTarget.src === FALLBACK_IMG) return;
                         setImgSrc(FALLBACK_IMG);
                     }}
                 />
@@ -107,14 +138,14 @@ export default function ArchitectSearchPage() {
     const [rows, setRows] = useState([]);
     const [pagination, setPagination] = useState(null);
 
-    // debounce search supaya tidak spam request saat mengetik
+    // debounce search
     const [debouncedQ, setDebouncedQ] = useState("");
     useEffect(() => {
         const t = setTimeout(() => setDebouncedQ(q.trim()), 400);
         return () => clearTimeout(t);
     }, [q]);
 
-    // reset page saat search berubah (penting kalau nanti ada pagination)
+    // reset page saat search berubah
     useEffect(() => {
         setPage(1);
     }, [debouncedQ]);
@@ -136,21 +167,17 @@ export default function ArchitectSearchPage() {
                     limit: String(limit),
                 });
 
-                // ✅ kirim beberapa key biar kompatibel dengan backend yang beda-beda
                 if (debouncedQ) {
                     params.set("search", debouncedQ);
                     params.set("q", debouncedQ);
                     params.set("keyword", debouncedQ);
                 }
 
-                const res = await fetch(
-                    `${API_BASE_URL}/api/architects/public?${params.toString()}`,
-                    {
-                        method: "GET",
-                        credentials: "include",
-                        signal: controller.signal,
-                    }
-                );
+                const res = await fetch(`${API_ROOT}/architects/public?${params.toString()}`, {
+                    method: "GET",
+                    credentials: "include",
+                    signal: controller.signal,
+                });
 
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(data?.message || "Gagal mengambil data arsitek");
@@ -216,12 +243,14 @@ export default function ArchitectSearchPage() {
                 </div>
 
                 <div className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
+                    {/* ✅ Vite: file di /public dipanggil pakai root path */}
                     <img
-                        src="https://images.unsplash.com/photo-1529421308418-eab98863cee5?auto=format&fit=crop&w=1800&q=80"
+                        src="/stock_architect.png"
                         alt="architect-hero"
-                        className="h-[260px] w-full object-cover md:h-[300px]"
+                        className="h-[260px] w-full object-cover md:h-[360px]"
                         loading="lazy"
                         onError={(e) => {
+                            // kalau file belum ada, hilangkan saja hero
                             e.currentTarget.style.display = "none";
                         }}
                     />
@@ -253,7 +282,7 @@ export default function ArchitectSearchPage() {
                     )}
                 </div>
 
-                {/* (Opsional) pagination UI kalau kamu butuh */}
+                {/* pagination */}
                 {pagination?.totalPages ? (
                     <div className="mt-6 flex items-center gap-2">
                         <button

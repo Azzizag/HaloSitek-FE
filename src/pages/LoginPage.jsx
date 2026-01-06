@@ -8,7 +8,7 @@ import { setAccessToken } from "../lib/authClient";
 const BG_URL_2 =
     "https://images.unsplash.com/photo-1460353581641-37baddab0fa2?q=80&w=1920&auto=format&fit=crop";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export default function LoginPage() {
     const [params] = useSearchParams();
@@ -85,6 +85,21 @@ export default function LoginPage() {
             setLoading(false);
         }
     }
+    const loginHeaderText = (role) => {
+        if (role === "users") {
+            return "Username"
+        } else {
+            return "Email "
+        };
+    }
+
+    const placeHolderText = (role) => {
+        if (role === "users") {
+            return "Masukan Username Anda"
+        } else {
+            return "Masukan Email Anda"
+        };
+    }
 
     return (
         <AuthShell bgUrl={BG_URL_2}>
@@ -121,12 +136,12 @@ export default function LoginPage() {
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-1">
-                        <Label htmlFor="identity">Nama pengguna atau email</Label>
+                        <Label htmlFor="identity">{loginHeaderText(pathRole)}</Label>
                         <Input
                             id="identity"
                             name="identity"
                             autoComplete="username"
-                            placeholder="Masukkan nama pengguna atau email Anda"
+                            placeholder={placeHolderText(pathRole)}
                             value={identity}
                             onChange={(e) => setIdentity(e.target.value)}
                             required
@@ -154,10 +169,6 @@ export default function LoginPage() {
                                 Ingat Saya
                             </Label>
                         </div>
-
-                        <a className="text-sm font-medium text-indigo-700 hover:underline" href="/forgot-password">
-                            Lupa Kata Sandi?
-                        </a>
                     </div>
 
                     <Button type="submit" disabled={loading}>

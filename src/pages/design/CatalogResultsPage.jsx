@@ -4,11 +4,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import axios from "axios";
 
 const api = axios.create({
-    baseURL: "http://localhost:3000/api",
+    baseURL: import.meta.env.VITE_API_BASE_URL,
     withCredentials: true,
 });
 
-// ✅ Zero-network fallback image (tidak akan request ke internet)
 const FALLBACK_IMG =
     "data:image/svg+xml;utf8," +
     encodeURIComponent(`
@@ -21,32 +20,31 @@ const FALLBACK_IMG =
   </svg>
 `);
 
-// unwrap ResponseFormatter.success(res, data, msg)
-// => { success, message, data }
 function unwrap(res) {
     const payload = res?.data ?? res;
     if (payload && typeof payload === "object" && "data" in payload) return payload.data;
     return payload;
 }
 
-function normalizeFileUrl(url) {
-    if (!url) return null;
-    const s = String(url);
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-    // Kalau sudah http/https normal
-    if (s.startsWith("http://") || s.startsWith("https://")) {
-        // ✅ kasus backend kamu: "http://localhost:3000/https://picsum.photos/..."
-        // ubah jadi "https://picsum.photos/..."
-        if (s.startsWith("http://localhost:3000/http://") || s.startsWith("http://localhost:3000/https://")) {
-            return s.replace("http://localhost:3000/", "");
-        }
+const BACKEND_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "").replace(/\/+$/, "");
+
+export function normalizeFileUrl(url) {
+    if (!url) return null;
+
+    let s = String(url).trim();
+
+    s = s.replace(/\\/g, "/");
+
+    if (/^https?:\/\//i.test(s)) {
+        s = s.replace(/^https?:\/\/localhost:3000\/(https?:\/\/)/i, "$1");
         return s;
     }
 
-    // path lokal (uploads/xxx)
-    return `http://localhost:3000/${s.replace(/^\/+/, "")}`;
+    s = s.replace(/^\/+/, "");
+    return `${BACKEND_ORIGIN}/${s}`;
 }
-
 
 function pickCover(design) {
     const bangunan = Array.isArray(design?.foto_bangunan) ? design.foto_bangunan : [];
@@ -75,7 +73,7 @@ function DesignCard({ item }) {
             <div className="p-5">
                 <div className="text-sm font-extrabold text-slate-900">{item.title}</div>
                 <div className="mt-1 text-xs text-slate-500">
-                    {item.kategori || "-"} {item.city ? `• ${item.city}` : ""}
+                    {item.kategori || "-"}
                 </div>
                 <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-600">
                     {item.description || "-"}
@@ -93,12 +91,10 @@ export default function CatalogResultsPage() {
     const limit = Number(params.get("limit") || "12");
     const q = params.get("q") || "";
     const category = params.get("category") || "";
-    const location = params.get("location") || "";
 
     // Draft inputs
     const [qDraft, setQDraft] = useState(q);
     const [categoryDraft, setCategoryDraft] = useState(category);
-    const [locationDraft, setLocationDraft] = useState(location);
 
     // ✅ kategori dinamis dari backend
     const [categories, setCategories] = useState([]);
@@ -119,24 +115,19 @@ export default function CatalogResultsPage() {
     useEffect(() => {
         setQDraft(q);
         setCategoryDraft(category);
-        setLocationDraft(location);
-    }, [q, category, location]);
+    }, [q, category]);
 
     function onReset() {
         setQDraft("");
         setCategoryDraft("");
-        setLocationDraft("");
 
         const next = new URLSearchParams();
         next.set("page", "1");
-        next.set("limit", "12"); // atau String(limit) kalau mau dinamis
+        next.set("limit", "12");
         setParams(next);
     }
 
-
-
-
-    // ✅ Fetch kategori dari backend: /designs/meta/categories
+    // ✅ Fetch hasil list/search
     useEffect(() => {
         let alive = true;
 
@@ -150,9 +141,8 @@ export default function CatalogResultsPage() {
                 const limitNow = Number(params.get("limit") || "12");
                 const qNow = params.get("q") || "";
                 const categoryNow = params.get("category") || "";
-                const locationNow = params.get("location") || "";
 
-                const hasFilter = Boolean(qNow || categoryNow || locationNow);
+                const hasFilter = Boolean(qNow || categoryNow);
 
                 let payload;
                 if (hasFilter) {
@@ -163,13 +153,8 @@ export default function CatalogResultsPage() {
                     if (qNow) qs.set("q", qNow);
 
                     if (categoryNow) {
-                        qs.set("kategori", categoryNow);     // ✅ backend kamu pakai ini
-                        qs.set("category", categoryNow);     // fallback
-                    }
-
-                    if (locationNow) {
-                        qs.set("location", locationNow);
-                        qs.set("city", locationNow);        // fallback
+                        qs.set("kategori", categoryNow); // ✅ backend kamu pakai ini
+                        qs.set("category", categoryNow); // fallback
                     }
 
                     const res = await api.get(`/designs/search?${qs.toString()}`);
@@ -194,7 +179,6 @@ export default function CatalogResultsPage() {
                     id: d.id,
                     title: d.title || "Untitled",
                     kategori: d.kategori || "",
-                    city: d?.architect?.city || d?.city || "",
                     description: d.description || "",
                     coverImageUrl: pickCover(d),
                 }));
@@ -220,26 +204,20 @@ export default function CatalogResultsPage() {
         return () => { alive = false; };
     }, [params.toString()]);
 
-    // ✅ Fetch hasil list/search
+    // ✅ Fetch kategori dari backend: /designs/meta/categories
     useEffect(() => {
         let alive = true;
 
         (async () => {
             try {
                 setCatLoading(true);
-
                 const res = await api.get("/designs/meta/categories");
                 const list = unwrap(res);
-
                 if (!alive) return;
-
                 setCategories(Array.isArray(list) ? list : []);
             } catch (e) {
                 if (!alive) return;
-
-                // fallback biar UI tetap usable
                 setCategories([]);
-                setErrMsg((prev) => prev); // ga ganggu errMsg utama
                 console.error("Fetch categories failed:", e?.response?.data || e?.message || e);
             } finally {
                 if (alive) setCatLoading(false);
@@ -251,14 +229,12 @@ export default function CatalogResultsPage() {
         };
     }, []);
 
-
     const subtitle = useMemo(() => {
         const parts = [];
         if (q) parts.push(`kunci: "${q}"`);
         if (category) parts.push(`kategori: ${category}`);
-        if (location) parts.push(`lokasi: ${location}`);
         return parts.length ? parts.join(" • ") : "Semua proyek";
-    }, [q, category, location]);
+    }, [q, category]);
 
     function onSubmit(e) {
         e.preventDefault();
@@ -272,9 +248,6 @@ export default function CatalogResultsPage() {
 
         if (categoryDraft) next.set("category", categoryDraft);
         else next.delete("category");
-
-        if (locationDraft) next.set("location", locationDraft);
-        else next.delete("location");
 
         setParams(next);
     }
@@ -325,19 +298,6 @@ export default function CatalogResultsPage() {
                             ))}
                         </select>
 
-                        {/* lokasi masih hardcode karena data city belum kita buat meta endpoint */}
-                        <select
-                            className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none"
-                            value={locationDraft}
-                            onChange={(e) => setLocationDraft(e.target.value)}
-                        >
-                            <option value="">Lokasi</option>
-                            <option value="Jakarta">Jakarta</option>
-                            <option value="Bandung">Bandung</option>
-                            <option value="Surabaya">Surabaya</option>
-                            <option value="Bali">Bali</option>
-                        </select>
-
                         <button
                             type="button"
                             onClick={onReset}
@@ -352,8 +312,6 @@ export default function CatalogResultsPage() {
                         >
                             Cari
                         </button>
-
-
                     </div>
                 </div>
             </form>

@@ -1,7 +1,6 @@
-// src/lib/apiArchitect.js
 import { getAccessToken, clearAccessToken } from "./authClient";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export async function apiArchitect(path, options = {}) {
     const token = getAccessToken();
@@ -54,9 +53,7 @@ export async function apiArchitect(path, options = {}) {
 export async function uploadCertificationPublic(file) {
     const fd = new FormData();
     fd.append("berkas", file);
-
-    // endpoint backend: /api/certifications/public/upload
-    const json = await apiArchitect("/api/certifications/public/upload", {
+    const json = await apiArchitect("/certifications/public/upload", {
         method: "POST",
         body: fd,
     });
@@ -74,7 +71,7 @@ export async function uploadCertificationPublic(file) {
 
 // bikin URL absolut kalau backend menyimpan path relatif (mis. "uploads/xxx.pdf")
 export function toAbsoluteUrl(u) {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
     if (!u) return null;
     if (/^https?:\/\//i.test(u)) return u;
     const cleaned = u.startsWith("/") ? u : `/${u}`;

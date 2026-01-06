@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import Logo from "../components/Logo";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export default function ArchitectPaymentPage() {
     const navigate = useNavigate();
@@ -39,7 +39,7 @@ export default function ArchitectPaymentPage() {
             }
 
             const res = await fetch(
-                `${API_BASE_URL}/api/architects/payment/${encodeURIComponent(paymentToken)}`,
+                `${API_BASE_URL}/architects/payment/${encodeURIComponent(paymentToken)}`,
                 { method: "GET", headers: { "Content-Type": "application/json" } }
             );
 

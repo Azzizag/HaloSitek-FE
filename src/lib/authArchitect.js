@@ -1,7 +1,7 @@
 // src/lib/apiArchitect.js
 import { getAccessToken, clearAccessToken } from "./authClient";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export async function apiArchitect(path, options = {}) {
     const token = getAccessToken();

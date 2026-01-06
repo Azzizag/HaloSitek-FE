@@ -1,18 +1,19 @@
 // src/pages/admin/AdminManagementPage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiCheckCircle, FiPlusCircle, FiX, FiAlertTriangle } from "react-icons/fi";
+import { FiCheckCircle, FiPlusCircle, FiX, FiAlertTriangle, FiTrash2 } from "react-icons/fi";
 import { apiAdmin } from "../../lib/apiAdmin";
 import { clearAdminToken } from "../../lib/adminAuth";
 
 const TOKEN_KEY = "admin_token";
 
-// ✅ SET EMAIL ADMIN KHUSUS YANG BOLEH TAMBAH ADMIN
+// ✅ admin khusus (yang boleh tambah & delete)
 const ADMIN_CREATOR_EMAIL = "admin@halositek.com";
 
 const ENDPOINTS = {
-    list: "/api/admins/auth/all",
-    create: "/api/admins/auth/add",
+    list: "/admins/auth/all",
+    create: "/admins/auth/add",
+    del: (id) => `/admins/auth/${id}`,
 };
 
 function InlineError({ children }) {
@@ -25,29 +26,27 @@ function InlineError({ children }) {
 }
 
 // decode JWT payload (UI only). Backend tetap sumber kebenaran.
-function getEmailFromToken() {
+function getClaimsFromToken() {
     try {
         const token = localStorage.getItem(TOKEN_KEY);
-        if (!token) return null;
+        if (!token) return { email: null, id: null };
 
         const [, payload] = token.split(".");
-        if (!payload) return null;
+        if (!payload) return { email: null, id: null };
 
-        const decoded = JSON.parse(
-            atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
-        );
-
-        return decoded?.email || null;
+        const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+        return { email: decoded?.email || null, id: decoded?.id || null };
     } catch {
-        return null;
+        return { email: null, id: null };
     }
 }
 
 export default function AdminManagementPage() {
     const navigate = useNavigate();
 
-    const currentEmail = useMemo(() => getEmailFromToken(), []);
-    const canAddAdmin = currentEmail === ADMIN_CREATOR_EMAIL;
+    const claims = useMemo(() => getClaimsFromToken(), []);
+    const currentEmail = claims.email;
+    const canManageAdmins = currentEmail === ADMIN_CREATOR_EMAIL;
 
     const [view, setView] = useState("list"); // list | create
     const [toast, setToast] = useState("");
@@ -64,6 +63,9 @@ export default function AdminManagementPage() {
     // inline errors
     const [fe, setFe] = useState({ email: "", password: "" });
     const [saving, setSaving] = useState(false);
+
+    // delete state
+    const [deletingId, setDeletingId] = useState(null);
 
     function formatDate(iso) {
         if (!iso) return "-";
@@ -126,7 +128,6 @@ export default function AdminManagementPage() {
         }
     }
 
-    // fetch list on mount
     useEffect(() => {
         fetchAdmins();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,16 +135,16 @@ export default function AdminManagementPage() {
 
     // extra safety: admin biasa tidak boleh masuk view create
     useEffect(() => {
-        if (!canAddAdmin && view === "create") {
+        if (!canManageAdmins && view === "create") {
             setToast("Akses ditolak. Hanya Admin Creator yang dapat menambahkan admin.");
             resetForm();
             setView("list");
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canAddAdmin, view]);
+    }, [canManageAdmins, view]);
 
     function openCreate() {
-        if (!canAddAdmin) {
+        if (!canManageAdmins) {
             setToast("Akses ditolak. Hanya Admin Creator yang dapat menambahkan admin.");
             return;
         }
@@ -156,7 +157,7 @@ export default function AdminManagementPage() {
     async function handleCreate(e) {
         e.preventDefault();
 
-        if (!canAddAdmin) {
+        if (!canManageAdmins) {
             setToast("Akses ditolak. Hanya Admin Creator yang dapat menambahkan admin.");
             resetForm();
             setView("list");
@@ -172,18 +173,13 @@ export default function AdminManagementPage() {
         try {
             setSaving(true);
 
-            const payload = {
-                fullName: name,
-                email,
-                password,
-            };
+            const payload = { fullName: name, email, password };
 
             await apiAdmin(ENDPOINTS.create, {
                 method: "POST",
                 body: JSON.stringify(payload),
             });
 
-            // ✅ refetch list (benar pakai res.data)
             await fetchAdmins({ silent: true });
 
             setToast("Admin berhasil ditambahkan");
@@ -213,6 +209,46 @@ export default function AdminManagementPage() {
         }
     }
 
+    async function handleDeleteAdmin(row) {
+        if (!canManageAdmins) {
+            setToast("Akses ditolak. Hanya Admin Creator yang dapat menghapus admin.");
+            return;
+        }
+
+        // UX guard (backend tetap sumber kebenaran)
+        if (row?.email === ADMIN_CREATOR_EMAIL) {
+            setToast("Admin Creator tidak bisa dihapus.");
+            return;
+        }
+        if (row?.email === currentEmail) {
+            setToast("Tidak boleh menghapus akun sendiri.");
+            return;
+        }
+
+        const ok = window.confirm(`Hapus admin "${row.fullName}" (${row.email})?`);
+        if (!ok) return;
+
+        try {
+            setDeletingId(row.id);
+            setToast("");
+            setErr("");
+
+            await apiAdmin(ENDPOINTS.del(row.id), { method: "DELETE" });
+
+            await fetchAdmins({ silent: true });
+            setToast("Admin berhasil dihapus");
+        } catch (e) {
+            if (String(e.message).includes("UNAUTHORIZED")) {
+                clearAdminToken();
+                navigate("/admin/login", { replace: true });
+                return;
+            }
+            setErr(e?.data?.message || e.message || "Gagal menghapus admin");
+        } finally {
+            setDeletingId(null);
+        }
+    }
+
     return (
         <div className="min-h-[calc(100vh-120px)]">
             <div className="flex min-h-[calc(100vh-120px)] flex-col">
@@ -224,7 +260,7 @@ export default function AdminManagementPage() {
                                     <h2 className="text-3xl font-extrabold text-slate-900">Data Admin</h2>
                                 </div>
 
-                                {canAddAdmin && (
+                                {canManageAdmins && (
                                     <button
                                         onClick={openCreate}
                                         className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
@@ -272,21 +308,46 @@ export default function AdminManagementPage() {
                                                     <th className="py-3">Email</th>
                                                     <th className="py-3">Role</th>
                                                     <th className="py-3">Dibuat</th>
+                                                    {canManageAdmins && <th className="py-3 text-right">Aksi</th>}
                                                 </tr>
                                             </thead>
 
                                             <tbody className="text-slate-700">
-                                                {rows.map((r) => (
-                                                    <tr
-                                                        key={r.id}
-                                                        className="border-b border-slate-100 last:border-b-0"
-                                                    >
-                                                        <td className="py-4">{r.fullName}</td>
-                                                        <td className="py-4">{r.email}</td>
-                                                        <td className="py-4">{r.role}</td>
-                                                        <td className="py-4">{formatDate(r.createdAt)}</td>
-                                                    </tr>
-                                                ))}
+                                                {rows.map((r) => {
+                                                    const isCreator = r.email === ADMIN_CREATOR_EMAIL;
+                                                    const isSelf = r.email === currentEmail;
+                                                    const disabled = deletingId === r.id || isCreator || isSelf;
+
+                                                    return (
+                                                        <tr key={r.id} className="border-b border-slate-100 last:border-b-0">
+                                                            <td className="py-4">{r.fullName}</td>
+                                                            <td className="py-4">{r.email}</td>
+                                                            <td className="py-4">{r.role}</td>
+                                                            <td className="py-4">{formatDate(r.createdAt)}</td>
+
+                                                            {canManageAdmins && (
+                                                                <td className="py-4 text-right">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={disabled}
+                                                                        onClick={() => handleDeleteAdmin(r)}
+                                                                        title={
+                                                                            isCreator
+                                                                                ? "Admin Creator tidak bisa dihapus"
+                                                                                : isSelf
+                                                                                    ? "Tidak boleh menghapus akun sendiri"
+                                                                                    : "Hapus admin"
+                                                                        }
+                                                                        className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                    >
+                                                                        <FiTrash2 />
+                                                                        {deletingId === r.id ? "Menghapus..." : "Hapus"}
+                                                                    </button>
+                                                                </td>
+                                                            )}
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
@@ -298,7 +359,6 @@ export default function AdminManagementPage() {
                             </div>
                         </div>
                     ) : (
-                        // CREATE FORM (hanya admin creator; kalau bukan, effect akan balikkan ke list)
                         <div className="flex justify-center">
                             <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8">
                                 <h2 className="text-2xl font-extrabold text-slate-900">Tambah Admin Baru</h2>

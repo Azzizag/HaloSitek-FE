@@ -8,12 +8,12 @@ import { clearAdminToken } from "../../lib/adminAuth";
 /* =========================
    Config
 ========================= */
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
 
 const ENDPOINTS = {
-    list: "/api/arsipedia",
-    remove: (id) => `/api/arsipedia/${id}`,
+    list: "/arsipedia",
+    remove: (id) => `/arsipedia/${id}`,
 };
 
 /* =========================
@@ -25,10 +25,8 @@ function resolveImageUrl(imagePath) {
     if (!s) return "";
     if (s.startsWith("http://") || s.startsWith("https://")) return s;
 
-    const p = s.replace(/^\/+/, ""); // normalize
-    // paling umum: uploads/arsipedia_images/...
+    const p = s.replace(/^\/+/, "");
     if (p.startsWith("uploads/")) return `${API_ORIGIN}/${encodeURI(p)}`;
-    // fallback: arsipedia_images/...
     return `${API_ORIGIN}/uploads/${encodeURI(p)}`;
 }
 
@@ -36,11 +34,7 @@ function formatDate(iso) {
     if (!iso) return "-";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "-";
-    return new Intl.DateTimeFormat("id-ID", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-    }).format(d);
+    return new Intl.DateTimeFormat("id-ID", { day: "2-digit", month: "short", year: "numeric" }).format(d);
 }
 
 function statusBadge(status) {
@@ -72,7 +66,12 @@ function Toast({ text, onClose }) {
             <div className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm text-slate-700 shadow-sm ring-1 ring-slate-200">
                 <FiCheckCircle className="text-slate-700" />
                 <span>{text}</span>
-                <button className="ml-4 text-slate-500 hover:text-slate-800" onClick={onClose} aria-label="Close toast">
+                <button
+                    type="button"
+                    className="ml-4 text-slate-500 hover:text-slate-800"
+                    onClick={onClose}
+                    aria-label="Close toast"
+                >
                     <FiX />
                 </button>
             </div>
@@ -101,10 +100,10 @@ function ConfirmModal({ open, title, desc, confirmText = "Hapus", onClose, onCon
                         <p className="mt-1 text-sm text-slate-500">{desc}</p>
                     </div>
                     <button
+                        type="button"
                         onClick={onClose}
                         className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
                         disabled={loading}
-                        aria-label="Close modal"
                     >
                         <FiX />
                     </button>
@@ -112,6 +111,7 @@ function ConfirmModal({ open, title, desc, confirmText = "Hapus", onClose, onCon
 
                 <div className="mt-6 flex items-center justify-end gap-3">
                     <button
+                        type="button"
                         onClick={onClose}
                         disabled={loading}
                         className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
@@ -119,6 +119,7 @@ function ConfirmModal({ open, title, desc, confirmText = "Hapus", onClose, onCon
                         Batal
                     </button>
                     <button
+                        type="button"
                         onClick={onConfirm}
                         disabled={loading}
                         className="inline-flex h-10 items-center justify-center rounded-xl bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
@@ -141,7 +142,10 @@ function ArsipediaCard({ item, onEdit, onDelete }) {
     }, [item?.content]);
 
     const tagList = useMemo(() => {
+        // biarkan tetap sederhana untuk list (editor akan handle parsing json)
         return String(item?.tags || "")
+            .replace(/^\[|\]$/g, "")
+            .replaceAll('"', "")
             .split(",")
             .map((t) => t.trim())
             .filter(Boolean)
@@ -159,7 +163,6 @@ function ArsipediaCard({ item, onEdit, onDelete }) {
                         loading="lazy"
                         onError={(e) => {
                             e.currentTarget.onerror = null;
-                            // fallback aman: jangan loop
                             e.currentTarget.src = "/no-image.png";
                         }}
                     />
@@ -180,7 +183,10 @@ function ArsipediaCard({ item, onEdit, onDelete }) {
                 {tagList.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                         {tagList.map((t) => (
-                            <span key={t} className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                            <span
+                                key={t}
+                                className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                            >
                                 {t}
                             </span>
                         ))}
@@ -193,6 +199,7 @@ function ArsipediaCard({ item, onEdit, onDelete }) {
 
                 <div className="mt-4 flex items-center justify-end gap-2">
                     <button
+                        type="button"
                         onClick={() => onEdit(item?.id)}
                         className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
@@ -200,6 +207,7 @@ function ArsipediaCard({ item, onEdit, onDelete }) {
                         Edit
                     </button>
                     <button
+                        type="button"
                         onClick={() => onDelete(item)}
                         className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
                     >
@@ -235,7 +243,6 @@ export default function ArsipediaPage() {
         try {
             setLoading(true);
             setErr("");
-
             const res = await apiAdmin(ENDPOINTS.list);
             const rows = Array.isArray(res?.data) ? res.data : [];
             setItems(rows);
@@ -255,7 +262,8 @@ export default function ArsipediaPage() {
     const onCreate = () => {
         setToast("");
         setErr("");
-        navigate("/admin/arsipedia/new/edit");
+        // ✅ FIX: route create yang benar sesuai App.jsx
+        navigate("/admin/arsipedia/new");
     };
 
     const onEdit = (id) => {
@@ -270,14 +278,12 @@ export default function ArsipediaPage() {
         setDeleteTarget(item);
     };
 
-    const onConfirmDelete = async () => {
+    const confirmDelete = async () => {
         if (!deleteTarget?.id) return;
         try {
             setDeleting(true);
             setErr("");
-
             await apiAdmin(ENDPOINTS.remove(deleteTarget.id), { method: "DELETE" });
-
             setItems((prev) => prev.filter((x) => x.id !== deleteTarget.id));
             setToast("Artikel berhasil dihapus");
             setDeleteTarget(null);
@@ -300,6 +306,7 @@ export default function ArsipediaPage() {
                         </div>
 
                         <button
+                            type="button"
                             onClick={onCreate}
                             className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
                         >
@@ -338,12 +345,10 @@ export default function ArsipediaPage() {
                         open={Boolean(deleteTarget)}
                         title="Hapus Artikel?"
                         desc={
-                            deleteTarget
-                                ? `Anda yakin ingin menghapus artikel "${deleteTarget.title}"? Tindakan ini tidak dapat dibatalkan.`
-                                : ""
+                            deleteTarget ? `Anda yakin ingin menghapus artikel "${deleteTarget.title}"? Tindakan ini tidak dapat dibatalkan.` : ""
                         }
                         onClose={() => (deleting ? null : setDeleteTarget(null))}
-                        onConfirm={onConfirmDelete}
+                        onConfirm={confirmDelete}
                         loading={deleting}
                     />
                 </div>

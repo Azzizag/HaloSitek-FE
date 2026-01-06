@@ -7,7 +7,6 @@ export default function CatalogHomePage() {
 
     const [q, setQ] = useState("");
     const [category, setCategory] = useState("");
-    const [location, setLocation] = useState("");
 
     function onSubmit(e) {
         e.preventDefault();
@@ -19,9 +18,6 @@ export default function CatalogHomePage() {
 
         // 🏷 kategori → field `kategori`
         if (category) params.set("category", category);
-
-        // 📍 lokasi → architect.city
-        if (location) params.set("location", location);
 
         navigate(`/catalog/results?${params.toString()}`);
     }
@@ -60,7 +56,7 @@ export default function CatalogHomePage() {
                             />
                         </div>
 
-                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
                             {/* Kategori */}
                             <select
                                 value={category}
@@ -74,19 +70,6 @@ export default function CatalogHomePage() {
                                 <option value="Publik">Publik</option>
                             </select>
 
-                            {/* Lokasi (architect.city) */}
-                            <select
-                                value={location}
-                                onChange={(e) => setLocation(e.target.value)}
-                                className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none"
-                            >
-                                <option value="">Lokasi</option>
-                                <option value="Jakarta">Jakarta</option>
-                                <option value="Bandung">Bandung</option>
-                                <option value="Surabaya">Surabaya</option>
-                                <option value="Bali">Bali</option>
-                            </select>
-
                             <button
                                 type="submit"
                                 className="h-11 rounded-xl bg-slate-700 px-4 text-sm font-semibold text-white hover:bg-slate-800"
@@ -98,12 +81,19 @@ export default function CatalogHomePage() {
                 </div>
 
                 {/* RIGHT HERO */}
-                <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
+                <div className="relative h-[420px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
                     <img
+                        src="/stock_katalog.png"
                         alt="hero"
-                        className="h-[360px] w-full object-cover"
-                        src="https://images.unsplash.com/photo-1529421308418-eab98863cee5?auto=format&fit=crop&w=1800&q=80"
+                        className="absolute inset-0 h-full w-full object-cover object-center"
+                        loading="lazy"
+                        onError={(e) => {
+                            if (e.currentTarget.src.includes("/no-image.png")) return;
+                            e.currentTarget.src = "/no-image.png";
+                        }}
                     />
+
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900/25 via-transparent to-transparent" />
 
                     <div className="absolute bottom-6 left-6 right-6 rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
                         <div className="text-lg font-extrabold text-slate-900">

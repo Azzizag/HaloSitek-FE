@@ -5,7 +5,7 @@ import { Button, Checkbox, Input, Label } from "../components/ui";
 import { useMemo, useState } from "react";
 import { setAdminToken } from "../lib/adminAuth";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export default function AdminLoginPage() {
     const [params] = useSearchParams();
@@ -37,7 +37,7 @@ export default function AdminLoginPage() {
         try {
             setSubmitting(true);
 
-            const res = await fetch(`${API_BASE_URL}/api/admins/auth/login`, {
+            const res = await fetch(`${API_BASE_URL}/admins/auth/login`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",

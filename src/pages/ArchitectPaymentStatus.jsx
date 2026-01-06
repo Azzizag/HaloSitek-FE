@@ -4,8 +4,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import Logo from "../components/Logo";
 import { Button } from "../components/ui";
 
-// Base URL backend (tanpa /api) karena endpoint dipanggil pakai /api/...
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export default function ArchitectPaymentStatus() {
     const [params] = useSearchParams();
@@ -24,10 +23,8 @@ export default function ArchitectPaymentStatus() {
         try {
             setLoading(true);
             setError("");
-
-            // ✅ backend: GET /api/payment/status/:orderId
             const res = await fetch(
-                `${API_BASE_URL}/api/payment/status/${encodeURIComponent(orderId)}`,
+                `${API_BASE_URL}/payment/status/${encodeURIComponent(orderId)}`,
                 { method: "GET", cache: "no-store" }
             );
 

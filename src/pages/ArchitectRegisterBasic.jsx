@@ -91,17 +91,7 @@ export default function ArchitectRegisterBasic() {
             {/* Header */}
             <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
                 <Logo className="h-7" />
-                <div className="space-x-2">
-                    <a
-                        href="/register/architect/basic"
-                        className="rounded-md bg-slate-700 px-3 py-1.5 text-white"
-                    >
-                        Daftar
-                    </a>
-                    <a href="/login" className="rounded-md border px-3 py-1.5">
-                        Masuk
-                    </a>
-                </div>
+
             </header>
 
             {/* Title + Subtitle */}
